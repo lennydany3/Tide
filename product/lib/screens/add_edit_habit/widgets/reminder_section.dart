@@ -78,8 +78,8 @@ class ReminderSection extends StatelessWidget {
             return 'At $early, "$subject · ${ReminderCopy.risingTide(options.leadMinutes)}". ';
           }()
         : '';
-    final main = options.style == AlarmStyle.call
-        ? 'At $at the Tide Call ${fullScreenCalls ? 'takes the screen' : 'rings'}: swipe up to ride it in.'
+    final main = options.style == ReminderStyle.call
+        ? 'At $at the Tide Call ${fullScreenCalls ? 'takes the screen' : 'rings'}: it asks whether you have heard it.'
         : 'At $at, "${ReminderCopy.callBody(subject, subject)}"';
     return '$heads$main';
   }

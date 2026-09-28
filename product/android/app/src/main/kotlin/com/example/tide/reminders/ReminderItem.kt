@@ -55,10 +55,7 @@ class ReminderItem(val json: JSONObject) {
 
     val glyph: String? get() = details.optString("glyph").ifEmpty { null }
 
-    /** Freezes the habit has left, for "Skip today". */
-    val freezes: Int get() = details.optInt("freezes", 0)
-
-    /** Steps still open on a to-do. It cannot be marked done while any are. */
+    /** Steps still open on a to-do, for the bar under its title. */
     val stepsLeft: Int
         get() {
             val steps = details.optJSONArray("steps") ?: return 0

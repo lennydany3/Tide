@@ -26,7 +26,8 @@ import org.json.JSONObject
  * Tide" asks the phone to unlock first, and only then starts the app.
  *
  * It shows over the lock screen and turns the screen on for as long as it is
- * up, and answers on `tide/call`: what is ringing, and what was answered.
+ * up, and answers on `tide/call`: what is ringing, and what was answered. The
+ * only answers are "heard" and "later", and both are the phone's to keep.
  */
 class TideCallActivity : FlutterActivity() {
     companion object {
@@ -78,14 +79,8 @@ class TideCallActivity : FlutterActivity() {
             "resolve" -> {
                 val item = call.argument<String>("key")?.let { ReminderBook.find(this, it) }
                 val outcome = call.argument<String>("outcome")
-                if (item != null && outcome != null) CallActions.resolve(this, item, outcome)
-                result.success(null)
-            }
-            "step" -> {
-                val item = call.argument<String>("key")?.let { ReminderBook.find(this, it) }
-                val step = call.argument<String>("step")
-                if (item != null && step != null) {
-                    CallActions.step(this, item, step, call.argument<Boolean>("value") ?: true)
+                if (item != null && outcome != null) {
+                    CallActions.resolve(this, item, outcome, call.argument<Int>("minutes") ?: 0)
                 }
                 result.success(null)
             }
@@ -102,19 +97,12 @@ class TideCallActivity : FlutterActivity() {
     }
 
     /**
-     * What is ringing, with the answers still waiting to be applied for the
-     * same habits — the call works out today's streak from the device's copy
-     * of the account plus these.
+     * What is ringing, with each habit's figures worked out again from the
+     * device's own copy of the account — a call planned three days ago would
+     * otherwise show three-day-old numbers.
      */
     private fun load(): String {
         val ringing = ReminderBook.ringing(this)
-        val subjects = ringing.map { it.subject }.toSet()
-        val waiting = ReminderBook.peekAnswers(this)
-        val pending = JSONArray()
-        for (i in 0 until waiting.length()) {
-            val answer = waiting.getJSONObject(i)
-            if (answer.optString("subject") in subjects) pending.put(answer)
-        }
         val calls = JSONArray()
         val snoozes = JSONObject()
         for (item in ringing) {
@@ -124,7 +112,6 @@ class TideCallActivity : FlutterActivity() {
         val keyguard = getSystemService(KeyguardManager::class.java)
         return JSONObject()
             .put("calls", calls)
-            .put("pending", pending)
             .put("snoozes", snoozes)
             .put("locked", keyguard.isKeyguardLocked)
             .toString()

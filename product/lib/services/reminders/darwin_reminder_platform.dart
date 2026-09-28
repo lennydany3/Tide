@@ -2,14 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../config/app_constants.dart';
-import '../habits/habit_rows.dart';
 import '../models/reminder_options.dart';
 import 'reminder_plan.dart';
 import 'reminder_platform.dart';
@@ -18,9 +15,13 @@ import 'reminder_platform.dart';
 ///
 /// iOS has no way for an app to take the lock screen, so a call arrives as a
 /// time-sensitive notification — it breaks through a Focus that allows it —
-/// with Done, Snooze and Skip on it, and a tap opens the Tide Call or the
-/// Lighthouse inside the app. The heads-up is a notification of its own with
-/// "I'm on it", "Done already" and "Skip today".
+/// with one button on it, "Remind me later", and a tap opening the Tide Call
+/// or the Lighthouse inside the app. The heads-up is a notification of its
+/// own with the same button.
+///
+/// Nothing on a notification can finish a habit or dock a to-do, on either
+/// platform. A reminder asks whether you are awake; the day's own records are
+/// the app's, and only the app writes them.
 ///
 /// What this does not do yet, and why: a Notification Content Extension (the
 /// wave card), a Live Activity (the countdown in the Dynamic Island) and
@@ -52,10 +53,6 @@ class DarwinReminderPlatform implements ReminderPlatform {
       final response = launch?.notificationResponse;
       if ((launch?.didNotificationLaunchApp ?? false) && response != null) {
         platform._launch = _openFor(response);
-        // An action pressed on the notification that launched the app is an
-        // answer, not only a tap.
-        final action = _actionFor(response);
-        if (action != null) platform._inbox.add(action);
       }
     } catch (error) {
       debugPrint('iOS reminders unavailable: $error');
@@ -64,8 +61,6 @@ class DarwinReminderPlatform implements ReminderPlatform {
     return platform;
   }
 
-  final List<ReminderAction> _inbox = [];
-  final StreamController<void> _queued = StreamController<void>.broadcast();
   final StreamController<ReminderOpen> _opened =
       StreamController<ReminderOpen>.broadcast();
   ReminderOpen? _launch;
@@ -73,14 +68,8 @@ class DarwinReminderPlatform implements ReminderPlatform {
   void _onResponse(NotificationResponse response) {
     final item = _itemOf(response.payload);
     if (item == null) return;
-    if (response.actionId == _Action.snooze) {
-      unawaited(_snoozeAgain(item));
-      return;
-    }
-    final action = _actionFor(response);
-    if (action != null) {
-      _inbox.add(action);
-      _queued.add(null);
+    if (response.actionId == _Action.later) {
+      unawaited(_laterAgain(item));
       return;
     }
     if (response.actionId == null || response.actionId!.isEmpty) {
@@ -139,12 +128,12 @@ class DarwinReminderPlatform implements ReminderPlatform {
       final payload = request.payload ?? '';
       final item = _itemOf(payload);
       final planned = payload.startsWith(_prefix(group));
-      final staleSnooze =
-          payload.startsWith(_snoozePrefix) &&
+      final staleLater =
+          payload.startsWith(_laterPrefix) &&
           item != null &&
           item.kind.group == group &&
           !open.contains(item.subjectId);
-      if (planned || staleSnooze) await _plugin.cancel(id: request.id);
+      if (planned || staleLater) await _plugin.cancel(id: request.id);
     }
     for (final item in items.take(_perGroup)) {
       await _show(item, _prefix(group));
@@ -160,13 +149,16 @@ class DarwinReminderPlatform implements ReminderPlatform {
 
   @override
   Future<void> snooze(PlannedReminder item, Duration after, int snoozes) async {
-    await _scheduleSnooze(_plugin, item, after, snoozes);
+    await _scheduleLater(_plugin, item, after, snoozes);
   }
 
-  Future<void> _snoozeAgain(PlannedReminder item) async {
+  /// A "later" pressed on the notification itself, with the app open. The
+  /// count travels in the payload, so the last one is honoured here as it is
+  /// on the lock screen: after it, the reminder simply does not come back.
+  Future<void> _laterAgain(PlannedReminder item) async {
     final taken = (item.details['snoozes'] as num?)?.toInt() ?? 0;
     if (taken >= AppConstants.maxReminderSnoozes) return;
-    await _scheduleSnooze(
+    await _scheduleLater(
       _plugin,
       item,
       Duration(minutes: item.options.snoozeMinutes),
@@ -176,33 +168,6 @@ class DarwinReminderPlatform implements ReminderPlatform {
 
   Future<void> _show(PlannedReminder item, String prefix) =>
       _scheduleItem(_plugin, item, prefix);
-
-  @override
-  Future<List<ReminderAction>> takeActions() async {
-    final taken = List.of(_inbox);
-    _inbox.clear();
-    // Answers given from a notification with the app closed were written by
-    // a background isolate straight to the device.
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.reload();
-      for (final key in prefs.getKeys().toList()) {
-        if (!key.startsWith(_inboxPrefix)) continue;
-        final raw = prefs.getString(key);
-        await prefs.remove(key);
-        final action = raw == null
-            ? null
-            : ReminderAction.fromJson(jsonDecode(raw));
-        if (action != null) taken.add(action);
-      }
-    } catch (error) {
-      debugPrint('Reminder inbox not read: $error');
-    }
-    return taken;
-  }
-
-  @override
-  Stream<void> get actionsQueued => _queued.stream;
 
   @override
   Stream<ReminderOpen> get opened => _opened.stream;
@@ -221,11 +186,7 @@ class DarwinReminderPlatform implements ReminderPlatform {
 // --- Shared with the background isolate ----------------------------------------
 
 abstract final class _Action {
-  static const onIt = 'on_it';
-  static const done = 'done';
-  static const skip = 'skip';
-  static const snooze = 'snooze';
-  static const tomorrow = 'tomorrow';
+  static const later = 'later';
 }
 
 abstract final class _Category {
@@ -236,8 +197,7 @@ abstract final class _Category {
 
 String _prefix(ReminderGroup group) => 'tide:${group.name}:';
 const String _testPrefix = 'tide:test:';
-const String _snoozePrefix = 'tide:snooze:';
-const String _inboxPrefix = 'tide.reminders.inbox.';
+const String _laterPrefix = 'tide:later:';
 
 InitializationSettings get _settings => InitializationSettings(
   iOS: DarwinInitializationSettings(
@@ -246,29 +206,25 @@ InitializationSettings get _settings => InitializationSettings(
     requestAlertPermission: false,
     requestBadgePermission: false,
     requestSoundPermission: false,
+    // One action on every reminder, and it only ever puts the reminder off:
+    // the same two answers a call gives, in the form a notification can.
     notificationCategories: [
       DarwinNotificationCategory(
         _Category.habitHeadsUp,
         actions: [
-          DarwinNotificationAction.plain(_Action.onIt, "I'm on it"),
-          DarwinNotificationAction.plain(_Action.done, 'Done already'),
-          DarwinNotificationAction.plain(_Action.skip, 'Skip today'),
+          DarwinNotificationAction.plain(_Action.later, 'Remind me later'),
         ],
       ),
       DarwinNotificationCategory(
         _Category.habitCall,
         actions: [
-          DarwinNotificationAction.plain(_Action.done, 'Done'),
-          DarwinNotificationAction.plain(_Action.snooze, 'Snooze'),
-          DarwinNotificationAction.plain(_Action.skip, 'Skip today'),
+          DarwinNotificationAction.plain(_Action.later, 'Remind me later'),
         ],
       ),
       DarwinNotificationCategory(
         _Category.task,
         actions: [
-          DarwinNotificationAction.plain(_Action.done, 'Done'),
-          DarwinNotificationAction.plain(_Action.snooze, 'Snooze'),
-          DarwinNotificationAction.plain(_Action.tomorrow, 'Tomorrow'),
+          DarwinNotificationAction.plain(_Action.later, 'Remind me later'),
         ],
       ),
     ],
@@ -344,23 +300,23 @@ Future<void> _scheduleItem(
   );
 }
 
-Future<void> _scheduleSnooze(
+Future<void> _scheduleLater(
   FlutterLocalNotificationsPlugin plugin,
   PlannedReminder item,
   Duration after,
-  int snoozes,
+  int later,
 ) async {
   if (item.test) return;
   final at = DateTime.now().add(after);
   final copy = PlannedReminder.fromJson({
     ...item.toJson(),
-    'key': '${item.occurrence}:snooze$snoozes',
+    'key': '${item.occurrence}:later$later',
     'at': at.millisecondsSinceEpoch,
     'dueAt': at.millisecondsSinceEpoch,
-    'details': {...item.details, 'snoozes': snoozes},
+    'details': {...item.details, 'snoozes': later},
   });
   if (copy == null) return;
-  await _scheduleItem(plugin, copy, _snoozePrefix);
+  await _scheduleItem(plugin, copy, _laterPrefix);
 }
 
 ReminderOpen? _openFor(NotificationResponse response) {
@@ -375,60 +331,23 @@ ReminderOpen? _openFor(NotificationResponse response) {
   return ReminderOpen(ReminderOpenTarget.call, item.key, calls: [item]);
 }
 
-ReminderAction? _actionFor(NotificationResponse response) {
-  final item = _itemOf(response.payload);
-  if (item == null || item.test) return null;
-  final type = switch (response.actionId) {
-    _Action.done =>
-      item.kind.isHabit
-          ? ReminderActionType.habitDone
-          : ReminderActionType.taskDone,
-    _Action.skip => ReminderActionType.habitSkip,
-    _Action.tomorrow => ReminderActionType.taskTomorrow,
-    _ => null,
-  };
-  if (type == null) return null;
-  return ReminderAction(
-    id: '${item.key}:${response.actionId}:${DateTime.now().microsecondsSinceEpoch}',
-    type: type,
-    subjectId: item.subjectId,
-    at: DateTime.now(),
-    day: HabitRows.parseDay(item.details['day']),
-    accountId: item.accountId,
-  );
-}
-
-/// A notification's button pressed with the app closed. Top level and kept
-/// by the compiler, so the background isolate can find it. It has no store:
-/// an answer is written to the device and applied the next time the app
-/// runs; a snooze is scheduled on the spot.
+/// A notification's button pressed with the app closed. Top level and kept by
+/// the compiler, so the background isolate can find it. It has no store, and
+/// needs none: the only answer a notification can give is "later", which is
+/// scheduled on the spot.
 @pragma('vm:entry-point')
 Future<void> onReminderBackground(NotificationResponse response) async {
   final item = _itemOf(response.payload);
-  if (item == null) return;
-  if (response.actionId == _Action.snooze) {
-    tz_data.initializeTimeZones();
-    final plugin = FlutterLocalNotificationsPlugin();
-    await plugin.initialize(settings: _settings);
-    final taken = (item.details['snoozes'] as num?)?.toInt() ?? 0;
-    if (taken >= AppConstants.maxReminderSnoozes) return;
-    await _scheduleSnooze(
-      plugin,
-      item,
-      Duration(minutes: item.options.snoozeMinutes),
-      taken + 1,
-    );
-    return;
-  }
-  final action = _actionFor(response);
-  if (action == null) return;
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      '$_inboxPrefix${action.id}',
-      jsonEncode(action.toJson()),
-    );
-  } on PlatformException catch (error) {
-    debugPrint('Reminder answer not kept: $error');
-  }
+  if (item == null || response.actionId != _Action.later) return;
+  tz_data.initializeTimeZones();
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(settings: _settings);
+  final taken = (item.details['snoozes'] as num?)?.toInt() ?? 0;
+  if (taken >= AppConstants.maxReminderSnoozes) return;
+  await _scheduleLater(
+    plugin,
+    item,
+    Duration(minutes: item.options.snoozeMinutes),
+    taken + 1,
+  );
 }

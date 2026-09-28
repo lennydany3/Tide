@@ -5,7 +5,6 @@ import 'package:tide/services/models/reminder_options.dart';
 import 'package:tide/services/models/tide_glyph.dart';
 import 'package:tide/services/reminders/reminder_plan.dart';
 import 'package:tide/services/reminders/reminder_settings.dart';
-import 'package:tide/services/reminders/reminder_store.dart';
 import 'package:tide/services/tasks/task.dart';
 
 /// Thursday 24 September 2026, 08:00.
@@ -191,7 +190,7 @@ void main() {
         [
           _habit(
             options: const ReminderOptions(
-              style: AlarmStyle.gentle,
+              style: ReminderStyle.gentle,
               leadMinutes: 0,
             ),
           ),
@@ -285,9 +284,15 @@ void main() {
         WeekMark.open.index,
       ]);
       expect(call.copy['subtitle'], 'Day 5 · Your tide is at its highest');
-      expect(call.copy['done'], 'Streak: 5 days');
       expect(call.copy['headsUp'], 'Tide rises in 10 min');
       expect(call.copy['missed'], contains('Go to Gym'));
+      // Nothing a reminder says is about finishing: there is no copy for a
+      // call to answer with a verdict, and a plan that carried one would put
+      // it back in the app's hands.
+      expect(
+        call.copy.keys,
+        isNot(anyOf(contains('done'), contains('skipped'), contains('docked'))),
+      );
     });
 
     test('habits still owed today are the only open subjects', () {
@@ -364,7 +369,7 @@ void main() {
         ],
         settings.copyWith(
           taskDefaults: const ReminderOptions(
-            style: AlarmStyle.gentle,
+            style: ReminderStyle.gentle,
             leadMinutes: 0,
           ),
         ),
@@ -392,19 +397,6 @@ void main() {
         {'id': 'b', 'title': 'Label it', 'done': false},
       ]);
       expect(call.copy['steps'], '1 of 2 steps done');
-    });
-
-    test('moving to tomorrow brings the rung reminder back tomorrow', () {
-      final task = _task(
-        reminders: [DateTime(2026, 9, 24, 7), DateTime(2026, 9, 30, 9)],
-      ).copyWith(dueDate: DateTime(2026, 9, 24));
-      final moved = ReminderStore.movedToTomorrow(task, _now);
-
-      expect(moved.dueDate, DateTime(2026, 9, 25));
-      expect(moved.reminders, [
-        DateTime(2026, 9, 25, 7),
-        DateTime(2026, 9, 30, 9),
-      ]);
     });
   });
 

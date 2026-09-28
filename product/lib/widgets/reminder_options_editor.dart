@@ -11,7 +11,7 @@ import 'segmented_pill.dart';
 import 'tide_switch.dart';
 
 /// How a reminder arrives: the heads-up before it, full screen or gentle at
-/// its time, its sound, and its snooze.
+/// its time, its sound, and how long a "later" is by default.
 ///
 /// One editor for three places — a habit's own reminder, the habit defaults
 /// and the to-do defaults in Settings → Reminders — so the three can never
@@ -81,7 +81,9 @@ class _ReminderOptionsEditorState extends State<ReminderOptionsEditor> {
           onChanged: (value) => _set(_options.copyWith(vibrate: value)),
         ),
         const SizedBox(height: 12),
-        const _Label('Snooze for'),
+        // "Put it off for", not "snooze for": this is the default a call's
+        // "Remind me in" opens on, and the call no longer calls it a snooze.
+        const _Label('Put it off for'),
         SegmentedPill(
           labels: [for (final m in snoozes) '$m min'],
           selectedIndex: snoozes
@@ -89,7 +91,7 @@ class _ReminderOptionsEditorState extends State<ReminderOptionsEditor> {
               .clamp(0, snoozes.length - 1),
           onChanged: (i) => _set(_options.copyWith(snoozeMinutes: snoozes[i])),
         ),
-        if (_options.style == AlarmStyle.call && widget.fullScreenCalls) ...[
+        if (_options.style == ReminderStyle.call && widget.fullScreenCalls) ...[
           const SizedBox(height: 8),
           _ToggleRow(
             label: 'Ring through Do Not Disturb',
@@ -125,8 +127,8 @@ class _ReminderOptionsEditorState extends State<ReminderOptionsEditor> {
                 icon: widget.forTasks
                     ? Icons.flare_rounded
                     : Icons.waves_rounded,
-                selected: _options.style == AlarmStyle.call,
-                onTap: () => _set(_options.copyWith(style: AlarmStyle.call)),
+                selected: _options.style == ReminderStyle.call,
+                onTap: () => _set(_options.copyWith(style: ReminderStyle.call)),
               ),
             ),
             const SizedBox(width: 10),
@@ -135,8 +137,9 @@ class _ReminderOptionsEditorState extends State<ReminderOptionsEditor> {
                 title: 'Gentle',
                 detail: 'A notification, and nothing more',
                 icon: Icons.notifications_none_rounded,
-                selected: _options.style == AlarmStyle.gentle,
-                onTap: () => _set(_options.copyWith(style: AlarmStyle.gentle)),
+                selected: _options.style == ReminderStyle.gentle,
+                onTap: () =>
+                    _set(_options.copyWith(style: ReminderStyle.gentle)),
               ),
             ),
           ],
@@ -146,9 +149,9 @@ class _ReminderOptionsEditorState extends State<ReminderOptionsEditor> {
           soundAndSnooze
         else ...[
           _FoldRow(
-            label: 'Sound and snooze',
+            label: 'Sound and later',
             detail:
-                '${_options.tone.label} · snooze ${_options.snoozeMinutes} min',
+                '${_options.tone.label} · later ${_options.snoozeMinutes} min',
             open: _open,
             onTap: () => setState(() => _open = !_open),
           ),

@@ -2,23 +2,29 @@ import 'package:flutter/foundation.dart';
 
 import '../../config/app_constants.dart';
 
-/// How a reminder arrives at its time.
-enum AlarmStyle {
-  /// Full screen, over the lock screen, ringing on the alarm stream until it
-  /// is answered — "Tide Call" for a habit, "Lighthouse" for a to-do.
+/// How a reminder reaches you at its time.
+///
+/// The names of both values are written into `habits.reminder_options`, so
+/// they are part of the stored shape and must not change; only the type's
+/// name moved, off the word "alarm".
+enum ReminderStyle {
+  /// Full screen, over the lock screen, ringing until it is answered —
+  /// "Tide Call" for a habit, "Lighthouse" for a to-do. The phone takes the
+  /// screen because it is asleep, and the screen answers one question: are
+  /// you awake, and when shall I come back?
   call,
 
   /// A notification and nothing more.
   gentle;
 
   String habitLabel() => switch (this) {
-    AlarmStyle.call => 'Tide Call',
-    AlarmStyle.gentle => 'Gentle',
+    ReminderStyle.call => 'Tide Call',
+    ReminderStyle.gentle => 'Gentle',
   };
 
   String taskLabel() => switch (this) {
-    AlarmStyle.call => 'Lighthouse',
-    AlarmStyle.gentle => 'Gentle',
+    ReminderStyle.call => 'Lighthouse',
+    ReminderStyle.gentle => 'Gentle',
   };
 }
 
@@ -51,7 +57,7 @@ enum ReminderTone {
 class ReminderOptions {
   const ReminderOptions({
     this.leadMinutes = 10,
-    this.style = AlarmStyle.call,
+    this.style = ReminderStyle.call,
     this.tone = ReminderTone.lowTide,
     this.snoozeMinutes = 10,
     this.vibrate = true,
@@ -61,10 +67,10 @@ class ReminderOptions {
   /// Minutes of heads-up before the reminder itself. Zero for none.
   final int leadMinutes;
 
-  final AlarmStyle style;
+  final ReminderStyle style;
   final ReminderTone tone;
 
-  /// What one snooze puts the call off by.
+  /// What one "Remind me in" puts the call off by.
   final int snoozeMinutes;
 
   final bool vibrate;
@@ -81,7 +87,7 @@ class ReminderOptions {
 
   ReminderOptions copyWith({
     int? leadMinutes,
-    AlarmStyle? style,
+    ReminderStyle? style,
     ReminderTone? tone,
     int? snoozeMinutes,
     bool? vibrate,
@@ -122,7 +128,7 @@ class ReminderOptions {
           lead is int && AppConstants.reminderLeadChoices.contains(lead)
           ? lead
           : fallback.leadMinutes,
-      style: AlarmStyle.values.asNameMap()[json['style']] ?? fallback.style,
+      style: ReminderStyle.values.asNameMap()[json['style']] ?? fallback.style,
       tone: ReminderTone.values.asNameMap()[json['tone']] ?? fallback.tone,
       snoozeMinutes:
           snooze is int && AppConstants.reminderSnoozeChoices.contains(snooze)

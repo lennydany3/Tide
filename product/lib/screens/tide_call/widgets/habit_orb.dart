@@ -16,23 +16,18 @@ import '../../../widgets/habit_glyph.dart';
 /// as a globe, so a call reads as Tide before a word of it is read. There is
 /// no per-habit colour in this app and so none here: the accent is the
 /// water, and the habit is its mark.
-///
-/// [hold] is the hold-to-skip filling around the rim, in frost, because a
-/// skipped day is a frozen one and frost is the only colour that means it.
 class HabitOrb extends StatelessWidget {
   const HabitOrb({
     super.key,
     required this.glyph,
     required this.size,
     required this.time,
-    this.hold = 0,
     this.still = false,
   });
 
   final TideGlyph glyph;
   final double size;
   final ValueListenable<double> time;
-  final double hold;
   final bool still;
 
   @override
@@ -43,9 +38,7 @@ class HabitOrb extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           Positioned.fill(
-            child: CustomPaint(
-              painter: _OrbPainter(time: time, hold: hold, still: still),
-            ),
+            child: CustomPaint(painter: _OrbPainter(time: time, still: still)),
           ),
           // Below the waterline, in the ink that sits on the accent.
           Padding(
@@ -64,11 +57,9 @@ class HabitOrb extends StatelessWidget {
 }
 
 class _OrbPainter extends CustomPainter {
-  _OrbPainter({required this.time, required this.hold, required this.still})
-    : super(repaint: time);
+  _OrbPainter({required this.time, required this.still}) : super(repaint: time);
 
   final ValueListenable<double> time;
-  final double hold;
   final bool still;
 
   /// How full the globe stands at rest: high enough that the mark sits
@@ -155,23 +146,8 @@ class _OrbPainter extends CustomPainter {
         ..strokeWidth = 3
         ..shader = TideGradients.markRing(palette).createShader(globe),
     );
-
-    if (hold > 0) {
-      canvas.drawArc(
-        globe.inflate(7),
-        -math.pi / 2,
-        2 * math.pi * hold.clamp(0.0, 1.0),
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 4
-          ..strokeCap = StrokeCap.round
-          ..color = TideColors.frost,
-      );
-    }
   }
 
   @override
-  bool shouldRepaint(_OrbPainter old) =>
-      old.hold != hold || old.time != time || old.still != still;
+  bool shouldRepaint(_OrbPainter old) => old.time != time || old.still != still;
 }

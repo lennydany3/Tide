@@ -6,7 +6,6 @@ import '../../../theme/tide_elevation.dart';
 import '../../../theme/tide_gradients.dart';
 import '../../../theme/tide_motion.dart';
 import '../../../theme/tide_typography.dart';
-import '../../../widgets/press_scale.dart';
 import '../../../widgets/tide_surface.dart';
 
 /// One step on the slip, as the call carries it.
@@ -34,10 +33,12 @@ class SlipStep {
 
 /// The to-do on a Lighthouse call: the card the beam finds.
 ///
-/// Its steps can be ticked here, on the lock screen, because a to-do with
-/// steps open cannot be docked — the same rule the list keeps — and a call
-/// that told you so without letting you do anything about it would be a
-/// dead end.
+/// **Read, and nothing more.** Its steps are shown as they stand and cannot be
+/// ticked here. They used to be, because a to-do with steps open could not be
+/// docked and the call would only say so; but there is no docking now, and a
+/// reminder that edits the list is a reminder that has opinions about the
+/// day. The steps are for knowing what this is about; the list is where they
+/// are ticked.
 ///
 /// The beam is drawn behind it, so the light on its face is drawn here:
 /// [glint] 0..1 is how squarely the beam is on it, and [sheen] where across
@@ -52,7 +53,6 @@ class TaskSlip extends StatelessWidget {
     required this.due,
     required this.repeats,
     required this.steps,
-    required this.onStep,
     this.glint = 0,
     this.sheen = 0.5,
   });
@@ -64,7 +64,6 @@ class TaskSlip extends StatelessWidget {
   final String due;
   final bool repeats;
   final List<SlipStep> steps;
-  final void Function(SlipStep step) onStep;
   final double glint;
   final double sheen;
 
@@ -128,8 +127,7 @@ class TaskSlip extends StatelessWidget {
                 const SizedBox(height: 18),
                 _Progress(done: done, total: steps.length),
                 const SizedBox(height: 6),
-                for (final step in steps.take(_shown))
-                  _StepRow(step: step, onTap: () => onStep(step)),
+                for (final step in steps.take(_shown)) _StepRow(step: step),
                 if (steps.length > _shown)
                   Padding(
                     padding: const EdgeInsets.only(top: 6, left: 34),
@@ -264,65 +262,55 @@ class _Progress extends StatelessWidget {
   }
 }
 
+/// A step as it stands. Not a control: nothing here can be ticked, so it is
+/// drawn as text with a mark beside it rather than as a checkbox.
 class _StepRow extends StatelessWidget {
-  const _StepRow({required this.step, required this.onTap});
+  const _StepRow({required this.step});
 
   final SlipStep step;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      checked: step.done,
-      label: step.title,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: PressScale(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7),
-            child: Row(
-              children: [
-                AnimatedContainer(
-                  duration: TideMotion.tabSwitch,
-                  width: 22,
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: step.done ? TideColors.lantern : null,
-                    border: step.done
-                        ? null
-                        : Border.all(
-                            color: TideColors.silt.withValues(alpha: 0.7),
-                            width: 1.5,
-                          ),
-                  ),
-                  child: step.done
-                      ? Icon(
-                          Icons.check_rounded,
-                          size: 15,
-                          color: TideColors.onLantern,
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    step.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TideType.body.copyWith(
-                      color: step.done ? TideColors.silt : TideColors.bone,
-                      decoration: step.done ? TextDecoration.lineThrough : null,
-                      decorationColor: TideColors.silt,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: step.done ? TideColors.lantern : null,
+              border: step.done
+                  ? null
+                  : Border.all(
+                      color: TideColors.silt.withValues(alpha: 0.7),
+                      width: 1.5,
                     ),
-                  ),
-                ),
-              ],
+            ),
+            child: step.done
+                ? Icon(
+                    Icons.check_rounded,
+                    size: 15,
+                    color: TideColors.onLantern,
+                  )
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              step.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TideType.body.copyWith(
+                color: step.done ? TideColors.silt : TideColors.bone,
+                decoration: step.done ? TextDecoration.lineThrough : null,
+                decorationColor: TideColors.silt,
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

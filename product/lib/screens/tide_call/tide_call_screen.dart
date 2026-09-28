@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 
+import '../../config/reminder_copy.dart';
 import '../../services/habits/habit_rows.dart';
 import '../../services/haptics.dart';
 import '../../services/models/tide_glyph.dart';
@@ -14,40 +15,36 @@ import '../../theme/tide_colors.dart';
 import '../../theme/tide_gradients.dart';
 import '../../theme/tide_motion.dart';
 import '../../theme/tide_typography.dart';
-import '../../widgets/gauge_number.dart';
 import '../../widgets/habit_glyph.dart';
-import '../../widgets/hold_to_fill.dart';
 import '../../widgets/press_scale.dart';
 import '../../widgets/ripple_burst.dart';
 import 'widgets/call_chip.dart';
 import 'widgets/call_clock.dart';
 import 'widgets/call_water.dart';
 import 'widgets/habit_orb.dart';
+import 'widgets/reminder_bar.dart';
 import 'widgets/wave_marks.dart';
 
 /// "Tide Call": a habit's reminder, full screen, at its time.
 ///
 /// **The whole screen is the gesture.** The same hand the app already
-/// taught: swipe up and the water rises under the finger — let go high
-/// enough and the habit is ridden in, the water surges to the top, a ripple
-/// runs out from the orb and the streak counts up. Swipe the orb away to the
-/// left to snooze it, and the water drains out; hold the orb to spend a
-/// freeze on the day. Every one of those has a chip under it, and a screen
-/// reader gets them as actions, because a gesture is not an accessible
-/// control.
+/// taught: swipe up and the water rises under the finger — let go high enough
+/// and the call is heard, the water surges to the top and a ripple runs out
+/// from the orb. Swipe the orb away to the left to put it off for however
+/// long the bar under it is set to, and the water drains out.
 ///
-/// **Several habits at the same minute ring as one call.** Their orbs sit in
-/// a row under the clock; the one in the middle is the one answering, a tap
-/// on another brings it forward, and "Done all" rides the lot in at once.
-///
-/// **Nothing is decided here.** An answer goes to the [controller] the moment
-/// it is given — the ringing stops as the water reaches the top — and the
-/// screen plays its farewell before retiring the call.
+/// **Nothing is decided here.** Hearing a reminder is not the same as keeping
+/// a habit, and the screen has no way to tell the difference: the answer goes
+/// to the [controller] the moment it is given — the ringing stops as the
+/// water reaches the top — and the screen plays its farewell before retiring
+/// the call. There is no done, no skip and no tomorrow, and a habit with no
+/// freezes left has nothing to lose by not being asked.
 class TideCallScreen extends StatefulWidget {
   const TideCallScreen({
     super.key,
     required this.controller,
     required this.calls,
+    this.clock,
   });
 
   final CallController controller;
@@ -55,11 +52,15 @@ class TideCallScreen extends StatefulWidget {
   /// The habit calls still on screen, in the order they rang.
   final List<PlannedReminder> calls;
 
+  /// For the "back at" line, and for tests. Nothing else in the call reads
+  /// the clock: the face is a countdown, not a time.
+  final DateTime Function()? clock;
+
   @override
   State<TideCallScreen> createState() => _TideCallScreenState();
 }
 
-enum _Answer { none, done, doneAll, snoozed, skipped, dismissed }
+enum _Answer { none, heard, heardAll, later }
 
 class _TideCallScreenState extends State<TideCallScreen>
     with TickerProviderStateMixin {
@@ -81,7 +82,7 @@ class _TideCallScreenState extends State<TideCallScreen>
     vsync: this,
   );
 
-  /// The orb's sideways travel, in pixels. Negative is toward a snooze.
+  /// The orb's sideways travel, in pixels. Negative is toward a "later".
   late final AnimationController _slide = AnimationController.unbounded(
     vsync: this,
   );
@@ -93,6 +94,11 @@ class _TideCallScreenState extends State<TideCallScreen>
 
   String? _currentKey;
   _Answer _answer = _Answer.none;
+
+  /// What the bar is offering to put this call off by. Kept here because the
+  /// orb's sideways gesture means the same thing as the chip under it.
+  int _minutes = 0;
+
   int _ripple = 0;
   bool _still = false;
   double _rideOrigin = 0;
@@ -106,10 +112,13 @@ class _TideCallScreenState extends State<TideCallScreen>
     orElse: () => widget.calls.first,
   );
 
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
   @override
   void initState() {
     super.initState();
     _currentKey = widget.calls.first.key;
+    _minutes = widget.calls.first.options.snoozeMinutes;
     _entry.addListener(_syncLevel);
     _water.addListener(_syncLevel);
     _entry.forward();
@@ -136,9 +145,11 @@ class _TideCallScreenState extends State<TideCallScreen>
     if (widget.calls.isEmpty) return;
     if (widget.calls.any((c) => c.key == _currentKey)) return;
     // The call on screen has been retired and another is still ringing: it
-    // comes up the way the first one did.
+    // comes up the way the first one did, with its own habit's idea of how
+    // long a "later" is.
     _currentKey = widget.calls.first.key;
     _answer = _Answer.none;
+    _minutes = widget.calls.first.options.snoozeMinutes;
     _water.value = 0;
     _slide.value = 0;
     _farewell.value = 0;
@@ -178,16 +189,17 @@ class _TideCallScreenState extends State<TideCallScreen>
     });
   }
 
-  int get _freezes => (_call.details['freezes'] as num?)?.toInt() ?? 0;
-
   // --- Answers ----------------------------------------------------------------
 
-  Future<void> _done() async {
+  /// Heard: the ringing stops and the habit is still open. The surge is the
+  /// whole celebration now — there is no streak to count up to, because
+  /// nothing was kept.
+  Future<void> _heard() async {
     if (_answer != _Answer.none) return;
     final call = _call;
-    setState(() => _answer = _Answer.done);
+    setState(() => _answer = _Answer.heard);
     unawaited(TideHaptics.heavyImpact());
-    unawaited(widget.controller.resolve(call, CallOutcome.done));
+    unawaited(widget.controller.resolve(call, const CallHeard()));
     await _water.animateTo(
       1.12 - _rest,
       duration: _motion(TideMotion.callSurge),
@@ -196,16 +208,18 @@ class _TideCallScreenState extends State<TideCallScreen>
     await _farewellThen(() => widget.controller.retire(call), ripple: true);
   }
 
-  Future<void> _doneAll() async {
+  /// Every habit ringing at this minute, heard at once. Same as [ _heard] for
+  /// each of them, and nothing logged.
+  Future<void> _heardAll() async {
     if (_answer != _Answer.none) return;
     final calls = List.of(widget.calls);
     setState(() {
-      _answer = _Answer.doneAll;
+      _answer = _Answer.heardAll;
       _answeredCount = calls.length;
     });
     unawaited(TideHaptics.heavyImpact());
     for (final call in calls) {
-      unawaited(widget.controller.resolve(call, CallOutcome.done));
+      unawaited(widget.controller.resolve(call, const CallHeard()));
     }
     await _water.animateTo(
       1.12 - _rest,
@@ -219,17 +233,19 @@ class _TideCallScreenState extends State<TideCallScreen>
     }, ripple: true);
   }
 
-  Future<void> _snooze() async {
+  /// Put off for [minutes] — the bar's choice, whether it came from a chip or
+  /// from the orb being swiped away.
+  Future<void> _later() async {
     if (_answer != _Answer.none) return;
     final call = _call;
-    if (!widget.controller.canSnooze(call)) {
-      _flash('No snoozes left for this one');
+    if (!widget.controller.canLater(call)) {
+      _flash(ReminderCopy.lastLaterToday);
       await _springBack();
       return;
     }
-    setState(() => _answer = _Answer.snoozed);
+    setState(() => _answer = _Answer.later);
     unawaited(TideHaptics.mediumImpact());
-    unawaited(widget.controller.resolve(call, CallOutcome.snooze));
+    unawaited(widget.controller.resolve(call, CallLater(_minutes)));
     final width = MediaQuery.sizeOf(context).width;
     await Future.wait([
       _water.animateTo(
@@ -244,29 +260,6 @@ class _TideCallScreenState extends State<TideCallScreen>
       ),
     ]);
     await _farewellThen(() => widget.controller.retire(call));
-  }
-
-  Future<void> _skip() async {
-    if (_answer != _Answer.none) return;
-    if (_freezes <= 0) {
-      _flash('No freezes left for this habit');
-      return;
-    }
-    final call = _call;
-    setState(() => _answer = _Answer.skipped);
-    unawaited(widget.controller.resolve(call, CallOutcome.skip));
-    await _farewellThen(() => widget.controller.retire(call), ripple: true);
-  }
-
-  Future<void> _dismiss() async {
-    if (_answer != _Answer.none) return;
-    final call = _call;
-    setState(() => _answer = _Answer.dismissed);
-    unawaited(widget.controller.resolve(call, CallOutcome.dismiss));
-    await _farewellThen(
-      () => widget.controller.retire(call),
-      hold: const Duration(milliseconds: 700),
-    );
   }
 
   Future<void> _farewellThen(
@@ -309,7 +302,7 @@ class _TideCallScreenState extends State<TideCallScreen>
     final fraction = _water.value / (1 - _rest);
     final flung = (details.primaryVelocity ?? 0) < -900 && fraction > 0.2;
     if (fraction >= TideMotion.rideThreshold || flung) {
-      unawaited(_done());
+      unawaited(_heard());
       return;
     }
     _water.animateTo(
@@ -328,7 +321,7 @@ class _TideCallScreenState extends State<TideCallScreen>
     if (_answer != _Answer.none) return;
     final width = MediaQuery.sizeOf(context).width;
     if (_slide.value < -width * 0.26 || (details.primaryVelocity ?? 0) < -800) {
-      unawaited(_snooze());
+      unawaited(_later());
     } else {
       unawaited(_springBack());
     }
@@ -343,11 +336,9 @@ class _TideCallScreenState extends State<TideCallScreen>
 
     return RippleBurst(
       trigger: _ripple,
-      color: _answer == _Answer.skipped ? TideColors.frost : TideColors.lantern,
-      accent: _answer == _Answer.skipped
-          ? TideColors.frost
-          : TideColors.palette.flare,
-      particles: _answer != _Answer.skipped,
+      color: TideColors.lantern,
+      accent: TideColors.palette.flare,
+      particles: true,
       intensity: 2.2,
       clip: false,
       origin: const Alignment(0, -0.08),
@@ -391,7 +382,7 @@ class _TideCallScreenState extends State<TideCallScreen>
                     child: FadeTransition(
                       opacity: _farewell,
                       child: SafeArea(
-                        child: Center(child: _farewellCopy(call)),
+                        child: Center(child: _farewellCopy()),
                       ),
                     ),
                   ),
@@ -448,7 +439,7 @@ class _TideCallScreenState extends State<TideCallScreen>
                             current: call.key,
                             onSelect: (key) =>
                                 setState(() => _currentKey = key),
-                            onDoneAll: _doneAll,
+                            onHeardAll: _heardAll,
                           ),
                         ],
                       ],
@@ -490,8 +481,14 @@ class _TideCallScreenState extends State<TideCallScreen>
                       children: [
                         _RideHint(level: _level, rest: _rest, still: _still),
                         SizedBox(height: compact ? 10 : 16),
-                        _chips(call),
-                        CallDismiss(onTap: _dismiss),
+                        ReminderBar(
+                          minutes: _minutes,
+                          canLater: widget.controller.canLater(call),
+                          onMinutes: (minutes) =>
+                              setState(() => _minutes = minutes),
+                          onLater: _later,
+                          onHeard: _heard,
+                        ),
                         const SizedBox(height: 6),
                       ],
                     ),
@@ -508,69 +505,64 @@ class _TideCallScreenState extends State<TideCallScreen>
   Widget _orb(PlannedReminder call, double size) {
     final glyph =
         TideGlyph.values.asNameMap()[call.details['glyph']] ?? TideGlyph.dot;
-    final canSnooze = widget.controller.canSnooze(call);
-    final snooze = call.options.snoozeMinutes;
+    final canLater = widget.controller.canLater(call);
 
     return Semantics(
       container: true,
       button: true,
-      label: '${call.title} reminder. Double-tap to mark done.',
-      onTap: _done,
+      label: '${call.title} reminder. Double-tap to say you have heard it.',
+      onTap: _heard,
       customSemanticsActions: {
-        if (canSnooze)
-          CustomSemanticsAction(label: 'Snooze $snooze minutes'): _snooze,
-        if (_freezes > 0)
-          const CustomSemanticsAction(label: 'Skip today'): _skip,
-        const CustomSemanticsAction(label: 'Dismiss'): _dismiss,
+        if (canLater)
+          CustomSemanticsAction(
+            label: 'Put it off ${ReminderCopy.minutes(_minutes)}',
+          ): _later,
+        const CustomSemanticsAction(label: 'Got it, thanks'): _heard,
       },
       child: ExcludeSemantics(
         child: GestureDetector(
           onHorizontalDragUpdate: _slideUpdate,
           onHorizontalDragEnd: _slideEnd,
-          child: HoldToFill(
-            enabled: _answer == _Answer.none && _freezes > 0,
-            onCommit: (_) => _skip(),
-            onTap: () => _flash(
-              _freezes > 0
-                  ? 'Swipe up to ride it in · hold to skip today'
-                  : 'Swipe up to ride it in',
-            ),
-            builder: (context, hold, _) => AnimatedBuilder(
-              animation: Listenable.merge([_slide, _time]),
-              builder: (context, child) {
-                final period = TideMotion.callBob.inMilliseconds / 1000;
-                final bob = _still
-                    ? 0.0
-                    : math.sin(_time.value * 2 * math.pi / period) * 4;
-                final away = (-_slide.value / (size * 1.2)).clamp(0.0, 1.0);
-                return Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    // "Snooze" surfacing behind the orb as it is pushed away.
-                    Opacity(
-                      opacity:
-                          (away * 2.4).clamp(0.0, 1.0) *
-                          (_answer == _Answer.none ? 1 : 0),
-                      child: Text(
-                        canSnooze ? 'Snooze · $snooze min' : 'No snoozes left',
-                        style: TideType.label.copyWith(color: TideColors.silt),
-                      ),
+          onTap: () => _flash(
+            'Swipe up to say you\'ve heard it · swipe the orb left to put it off',
+          ),
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_slide, _time]),
+            builder: (context, child) {
+              final period = TideMotion.callBob.inMilliseconds / 1000;
+              final bob = _still
+                  ? 0.0
+                  : math.sin(_time.value * 2 * math.pi / period) * 4;
+              final away = (-_slide.value / (size * 1.2)).clamp(0.0, 1.0);
+              return Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  // The "later" surfacing behind the orb as it is pushed
+                  // away: whatever the bar under it is set to right now.
+                  Opacity(
+                    opacity:
+                        (away * 2.4).clamp(0.0, 1.0) *
+                        (_answer == _Answer.none ? 1 : 0),
+                    child: Text(
+                      canLater
+                          ? 'Back in ${ReminderCopy.minutes(_minutes)}'
+                          : ReminderCopy.lastLaterToday,
+                      style: TideType.label.copyWith(color: TideColors.silt),
                     ),
-                    Transform.translate(
-                      offset: Offset(_slide.value, bob),
-                      child: Opacity(opacity: 1 - away * 0.85, child: child),
-                    ),
-                  ],
-                );
-              },
-              child: HabitOrb(
-                glyph: glyph,
-                size: size,
-                time: _time,
-                hold: hold,
-                still: _still,
-              ),
+                  ),
+                  Transform.translate(
+                    offset: Offset(_slide.value, bob),
+                    child: Opacity(opacity: 1 - away * 0.85, child: child),
+                  ),
+                ],
+              );
+            },
+            child: HabitOrb(
+              glyph: glyph,
+              size: size,
+              time: _time,
+              still: _still,
             ),
           ),
         ),
@@ -578,85 +570,24 @@ class _TideCallScreenState extends State<TideCallScreen>
     );
   }
 
-  Widget _chips(PlannedReminder call) {
-    final canSnooze = widget.controller.canSnooze(call);
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        CallChip(
-          label: canSnooze
-              ? 'Snooze ${call.options.snoozeMinutes} min'
-              : 'No snoozes left',
-          icon: Icons.snooze_rounded,
-          enabled: canSnooze,
-          onTap: _snooze,
-        ),
-        CallChip(
-          label: 'Done',
-          icon: Icons.check_rounded,
-          accent: true,
-          onTap: _done,
-        ),
-        CallChip(
-          label: _freezes > 0 ? 'Skip today' : 'No freezes left',
-          icon: Icons.ac_unit_rounded,
-          enabled: _freezes > 0,
-          onTap: _skip,
-        ),
-      ],
-    );
-  }
-
-  Widget _farewellCopy(PlannedReminder call) {
-    final streak = ((call.details['streak'] as num?)?.toInt() ?? 0) + 1;
+  /// What is said once the ringing has stopped: a time to come back to, or
+  /// that it was heard and the habit is still there.
+  Widget _farewellCopy() {
     return switch (_answer) {
-      _Answer.done => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GaugeCountUp(
-            value: streak,
-            style: TideType.gaugeHero(
-              color: TideColors.bone,
-            ).copyWith(fontSize: 88),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            streak == 1 ? 'day streak' : 'day streak · ${call.title}',
-            style: TideType.heading,
-          ),
-          const SizedBox(height: 6),
-          Text(call.copy['done'] ?? '', style: TideType.bodyMuted),
-        ],
+      _Answer.later => _Line(
+        ReminderCopy.backAt(_now().add(Duration(minutes: _minutes))),
       ),
-      _Answer.doneAll => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'All $_answeredCount in',
-            style: TideType.hero.copyWith(fontSize: 34),
-          ),
-          const SizedBox(height: 8),
-          Text('The tide is full', style: TideType.bodyMuted),
-        ],
-      ),
-      _Answer.snoozed => _Line(call.copy['snoozed'] ?? 'Snoozed'),
-      _Answer.skipped => _Line(
-        call.copy['skipped'] ?? 'Frozen for today',
-        color: TideColors.frost,
-      ),
-      _Answer.dismissed => const _Line('Still open for today'),
+      _Answer.heard => const _Line(ReminderCopy.heardHabit),
+      _Answer.heardAll => _Line('All $_answeredCount heard'),
       _Answer.none => const SizedBox.shrink(),
     };
   }
 }
 
 class _Line extends StatelessWidget {
-  const _Line(this.text, {this.color});
+  const _Line(this.text);
 
   final String text;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -665,7 +596,7 @@ class _Line extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: TideType.hero.copyWith(fontSize: 26, color: color),
+        style: TideType.hero.copyWith(fontSize: 26),
       ),
     );
   }
@@ -714,19 +645,19 @@ class _TopBar extends StatelessWidget {
 }
 
 /// Several habits at the same minute: their orbs in a row, the one being
-/// answered ringed, and "Done all".
+/// answered ringed, and one button to hear them all.
 class _OrbStack extends StatelessWidget {
   const _OrbStack({
     required this.calls,
     required this.current,
     required this.onSelect,
-    required this.onDoneAll,
+    required this.onHeardAll,
   });
 
   final List<PlannedReminder> calls;
   final String current;
   final ValueChanged<String> onSelect;
-  final VoidCallback onDoneAll;
+  final VoidCallback onHeardAll;
 
   @override
   Widget build(BuildContext context) {
@@ -771,10 +702,10 @@ class _OrbStack extends StatelessWidget {
           ),
         const SizedBox(width: 10),
         CallChip(
-          label: 'Done all',
-          icon: Icons.done_all_rounded,
+          label: 'Heard all',
+          icon: Icons.hearing_rounded,
           accent: true,
-          onTap: onDoneAll,
+          onTap: onHeardAll,
         ),
       ],
     );
@@ -800,11 +731,13 @@ class _RideHint extends StatelessWidget {
       valueListenable: level,
       builder: (context, value, _) {
         final fraction = ((value - rest) / (1 - rest)).clamp(0.0, 1.0);
+        // "Ride the wave" is the old language: the water is not carrying
+        // anything anywhere now. It rises because the call was heard.
         final text = fraction >= TideMotion.rideThreshold
-            ? 'Let go to ride it in'
+            ? 'Let go when you\'ve heard it'
             : fraction > 0.08
             ? 'Keep going…'
-            : 'Swipe up to ride the wave';
+            : 'Swipe up to say you\'ve heard it';
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [

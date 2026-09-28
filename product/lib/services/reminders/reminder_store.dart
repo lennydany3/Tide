@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show DateUtils;
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../../theme/tide_colors.dart';
@@ -15,8 +14,8 @@ import 'reminder_plan.dart';
 import 'reminder_platform.dart';
 import 'reminder_settings.dart';
 
-/// Habit and to-do reminders: what the phone should hold, what it is
-/// allowed to do, and what was answered where the app could not hear it.
+/// Habit and to-do reminders: what the phone should hold, and what it is
+/// allowed to do.
 ///
 /// **It only reads the other stores and writes through them.** The habit
 /// store stays the source of truth: every change there is re-planned here, a
@@ -25,11 +24,11 @@ import 'reminder_settings.dart';
 /// to native code. To-dos arrive through the task store's own
 /// [TaskReminders] seam, which is [taskReminders] in the app.
 ///
-/// **Answers from the lock screen come back as actions.** The call is shown
-/// by a separate isolate, and a notification's buttons can be pressed with
-/// no app running at all, so neither can reach a store. What they did is
-/// queued on the device and applied here the next time the app runs — or at
-/// once, when it already is — through the same store calls a tap would make.
+/// **Nothing is ever applied from a call.** A call asks whether you are awake
+/// and when to come back, and both of those are the phone's to keep — the
+/// ringing has to stop with no app running, so a "later" is armed natively
+/// and a habit is never logged by a screen that was only reminding. The
+/// stores change here and only here, from the app.
 class ReminderStore extends ChangeNotifier {
   ReminderStore({
     required this.tide,
@@ -42,12 +41,10 @@ class ReminderStore extends ChangeNotifier {
        _clock = clock ?? DateTime.now {
     tide.addListener(_onTide);
     tide.sessionChanges.addListener(_onSession);
-    _queued = this.platform.actionsQueued.listen((_) => unawaited(drain()));
     if (watchLifecycle) {
       _lifecycle = AppLifecycleListener(onResume: _onResume);
     }
     unawaited(refreshPermissions());
-    unawaited(drain());
     _planHabits();
   }
 
@@ -66,7 +63,6 @@ class ReminderStore extends ChangeNotifier {
   /// it over.
   List<Task> _tasksSeen = const [];
 
-  late final StreamSubscription<void> _queued;
   AppLifecycleListener? _lifecycle;
   Timer? _habitTimer;
 
@@ -77,11 +73,10 @@ class ReminderStore extends ChangeNotifier {
   /// every change.
   late final TaskReminders taskReminders = _TaskChannel(this);
 
-  /// The task store to apply to-do actions through. Set once both exist —
-  /// the task store is built with [taskReminders], so it comes second.
+  /// The task store, for the tests and the preview in Settings. Set once both
+  /// exist — the task store is built with [taskReminders], so it comes second.
   void attachTasks(TaskStore tasks) {
     _tasks = tasks;
-    unawaited(drain());
   }
 
   // --- Settings -------------------------------------------------------------
@@ -196,12 +191,10 @@ class ReminderStore extends ChangeNotifier {
 
   void _onSession() {
     _planHabits(force: true);
-    unawaited(drain());
   }
 
   void _onResume() {
     unawaited(refreshPermissions());
-    unawaited(drain());
     // The day may have turned while the app was away, which changes which
     // of today's reminders are still owed.
     _planHabits();
@@ -270,106 +263,6 @@ class ReminderStore extends ChangeNotifier {
         open.toList()..sort(),
       ]);
 
-  // --- Actions ----------------------------------------------------------------
-
-  /// Applies whatever was answered where the app could not hear it.
-  Future<void> drain() async {
-    final List<ReminderAction> actions;
-    try {
-      actions = await platform.takeActions();
-    } catch (error) {
-      debugPrint('Reminder actions not read: $error');
-      return;
-    }
-    for (final action in actions) {
-      apply(action);
-    }
-  }
-
-  /// Applies one answer through the stores, as a tap would. Returns false
-  /// when there was nothing to do: another account's reminder, a habit
-  /// deleted since, a day already kept.
-  ///
-  /// Nothing here celebrates. The call has its own moment on screen, and a
-  /// completion reaching the app hours after it happened is bookkeeping.
-  bool apply(ReminderAction action) {
-    final account = tide.account?.id;
-    if (account == null) return false;
-    if (action.accountId != null && action.accountId != account) return false;
-    final now = _clock();
-    final day = DateUtils.dateOnly(action.day ?? now);
-
-    switch (action.type) {
-      case ReminderActionType.habitDone:
-        final habit = tide.habitById(action.subjectId);
-        if (habit == null || habit.isCompleteOn(day)) return false;
-        tide.log(habit.id, date: day, celebrate: false);
-        return true;
-      case ReminderActionType.habitSkip:
-        final habit = tide.habitById(action.subjectId);
-        if (habit == null || habit.countsTowardStreak(day)) return false;
-        return tide.freeze(habit.id, date: day, celebrate: false);
-      case ReminderActionType.taskDone:
-        final tasks = _tasks;
-        final task = tasks?.byId(action.subjectId);
-        if (tasks == null || task == null) return false;
-        if (task.isCompleted || task.isDeleted || task.subtasksLeft > 0) {
-          return false;
-        }
-        return tasks.toggleComplete(task.id) != null;
-      case ReminderActionType.taskStep:
-        final tasks = _tasks;
-        final task = tasks?.byId(action.subjectId);
-        if (tasks == null || task == null || task.isDeleted) return false;
-        if (!task.subtasks.any((s) => s.id == action.stepId)) return false;
-        tasks.update(
-          task.copyWith(
-            subtasks: [
-              for (final step in task.subtasks)
-                step.id == action.stepId
-                    ? step.copyWith(isCompleted: action.value)
-                    : step,
-            ],
-          ),
-        );
-        return true;
-      case ReminderActionType.taskTomorrow:
-        final tasks = _tasks;
-        final task = tasks?.byId(action.subjectId);
-        if (tasks == null || task == null || task.isDeleted) return false;
-        if (task.isCompleted) return false;
-        tasks.update(movedToTomorrow(task, now));
-        return true;
-    }
-  }
-
-  /// [task] put off to tomorrow from the Lighthouse: due tomorrow unless it
-  /// was already due later, and every reminder that has gone by — the one
-  /// that just rang among them — brought back at the same time tomorrow.
-  /// Reminders still to come are left where they were.
-  static Task movedToTomorrow(Task task, DateTime now) {
-    final today = DateUtils.dateOnly(now);
-    final tomorrow = DateUtils.addDaysToDate(today, 1);
-    final due = task.dueDate;
-    final reminders = <DateTime>{
-      for (final at in task.reminders)
-        if (at.isAfter(now))
-          at
-        else
-          DateTime(
-            tomorrow.year,
-            tomorrow.month,
-            tomorrow.day,
-            at.hour,
-            at.minute,
-          ),
-    };
-    return task.copyWith(
-      dueDate: due == null || !due.isAfter(today) ? tomorrow : due,
-      reminders: reminders.toList(),
-    );
-  }
-
   // --- Opening, testing -------------------------------------------------------
 
   /// Taps on reminders while the app runs.
@@ -431,7 +324,6 @@ class ReminderStore extends ChangeNotifier {
     tide.removeListener(_onTide);
     tide.sessionChanges.removeListener(_onSession);
     _habitTimer?.cancel();
-    unawaited(_queued.cancel());
     _lifecycle?.dispose();
     super.dispose();
   }

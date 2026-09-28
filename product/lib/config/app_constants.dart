@@ -56,11 +56,30 @@ abstract final class AppConstants {
   /// is "no heads-up": the reminder arrives on the minute and nothing before.
   static const List<int> reminderLeadChoices = [0, 5, 10, 15];
 
-  /// What a snooze can put a reminder off by, in minutes.
+  /// The default a reminder is stored with, and what the options editor
+  /// offers.
   static const List<int> reminderSnoozeChoices = [5, 10, 15];
 
-  /// Snoozes one reminder may take. The one after that is refused and the
-  /// reminder goes out as missed — a fourth "later" is a no.
+  /// The presets offered on a call itself, under "Remind me in".
+  ///
+  /// Wider than [reminderSnoozeChoices], because a call is answered
+  /// half-awake: five minutes is not long enough to have finished whatever
+  /// the reminder interrupted, and an hour is the answer on most days. The
+  /// stored default is not one of these — it is whatever the habit was given
+  /// — so the pill preselects it when it matches and nothing when it does
+  /// not, rather than quietly moving the habit's setting.
+  static const List<int> reminderLaterChoices = [5, 10, 15, 30, 60];
+
+  /// The longest "Later…" a call will take, in minutes. Past an afternoon a
+  /// reminder is not interrupting anybody, it is broken.
+  static const int reminderLaterMaxMinutes = 240;
+
+  /// How many "laters" one reminder may take. [maxReminderSnoozes] is the
+  /// last; after it the occurrence is simply over, and the phone says nothing
+  /// about it — no fourth nudge, no notice that there is nothing left to
+  /// nudge with. The name is left as it is because the counter has always
+  /// been called that: what is counted is a reminder being put off, whatever
+  /// the call now calls it.
   static const int maxReminderSnoozes = 3;
 
   /// How long a full-screen call rings before it gives up and leaves a

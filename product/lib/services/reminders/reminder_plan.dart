@@ -115,10 +115,13 @@ class PlannedReminder {
   /// Fired from Settings → Reminders. Answering it changes nothing.
   final bool test;
 
-  /// Whose it is. An action taken on it is only applied to this account.
+  /// Whose it is, so an account that was not signed in cannot be reminded
+  /// about on this phone.
   final String? accountId;
 
-  /// Figures for the screens: streak, week, freezes, steps.
+  /// Figures for the screens, and for the notification pictures: streak,
+  /// week, steps. Nothing here is anything to act on — a call reads it and
+  /// puts the phone down again.
   final Map<String, Object?> details;
 
   /// The sentences, already written.
@@ -314,7 +317,7 @@ abstract final class ReminderPlanner {
       best: best,
       lead: test ? 0 : options.leadMinutes,
     );
-    final callKind = options.style == AlarmStyle.call
+    final callKind = options.style == ReminderStyle.call
         ? ReminderKind.habitCall
         : ReminderKind.habitGentle;
 
@@ -348,8 +351,8 @@ abstract final class ReminderPlanner {
     ];
   }
 
-  /// The figures a habit's reminder shows: its mark, its streak, the seven
-  /// days ending on [day], and the freezes it has left for "Skip today".
+  /// The figures a habit's reminder shows: its mark, its streak and the seven
+  /// days ending on [day].
   static Map<String, Object?> habitDetails(
     Habit habit, {
     required DateTime day,
@@ -362,7 +365,6 @@ abstract final class ReminderPlanner {
       'target': habit.targetLabel,
       'streak': StreakCalculator.currentStreak(habit, asOf: now),
       'best': StreakCalculator.bestStreak(habit, asOf: now),
-      'freezes': habit.freezesRemaining,
       'day': HabitRows.dayText(day),
       'week': [
         for (var back = 6; back >= 0; back--)
@@ -390,6 +392,9 @@ abstract final class ReminderPlanner {
     return WeekMark.missed;
   }
 
+  /// The habit's reminder, in words. There is no line here for a habit that
+  /// has been done, skipped or put off: the call cannot do any of those, so
+  /// there is nothing to have said.
   static Map<String, String> habitCopy(
     Habit habit, {
     required String seed,
@@ -412,11 +417,6 @@ abstract final class ReminderPlanner {
         best: best,
       ),
       'missed': ReminderCopy.habitMissed(name),
-      'done': ReminderCopy.doneLine(next),
-      'snoozed': ReminderCopy.snoozedLine(habit.reminderOptions.snoozeMinutes),
-      'skipped': ReminderCopy.skippedLine(
-        (habit.freezesRemaining - 1).clamp(0, 99),
-      ),
     };
   }
 
@@ -516,11 +516,8 @@ abstract final class ReminderPlanner {
       'steps': ReminderCopy.steps(task.subtasksDone, task.subtasks.length),
       'callBody': ReminderCopy.lighthouseBody(occurrence, title),
       'missed': ReminderCopy.taskMissed(title),
-      'snoozed': ReminderCopy.snoozedLine(options.snoozeMinutes),
-      'done': ReminderCopy.docked(),
-      'tomorrow': ReminderCopy.tomorrowLine(),
     };
-    final callKind = options.style == AlarmStyle.call
+    final callKind = options.style == ReminderStyle.call
         ? ReminderKind.taskCall
         : ReminderKind.taskGentle;
 

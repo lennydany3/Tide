@@ -23,16 +23,15 @@ import java.time.ZoneId
  *   button on a notification or the lock screen.
  * * **Ringing**: the calls the ringing service and the lock-screen activity
  *   are showing right now.
- * * **The inbox**: answers given where no store could hear them, handed to
- *   Dart the next time the app runs (`ReminderStore.drain`).
  * * **The look and the timings**, from the palette and `AppConstants`.
  *
  * One lock around all of it. A receiver, the service and the activity all
  * run on the main thread in practice, but the method channel does not have
- * to, and a lost answer is the one failure here nobody would ever notice.
+ * to, and a snooze written in the background is the one loss here nobody
+ * would ever notice until the reminder did not come back.
  */
 // Writes use commit(), not apply(), on purpose: most of them happen in a
-// broadcast receiver, and an answer or a delivery written in the background
+// broadcast receiver, and a snooze or a delivery written in the background
 // could be lost if the process goes the moment the receiver returns.
 @SuppressLint("ApplySharedPref")
 object ReminderBook {
@@ -43,7 +42,6 @@ object ReminderBook {
     private const val FILE = "tide_reminders"
     private const val SNOOZED = "snoozed"
     private const val RINGING = "ringing"
-    private const val INBOX = "inbox"
     private const val LOOK = "look"
     private const val TIMING = "timing"
     private const val LIVE = "live"
@@ -120,17 +118,6 @@ object ReminderBook {
             write(context, name, later)
         }
         due.sortedBy { it.at }
-    }
-
-    /**
-     * Drops whatever is still planned for [occurrence] — "Done already" on a
-     * heads-up means the call behind it has nothing left to ask.
-     */
-    fun dropOccurrence(context: Context, occurrence: String) = synchronized(lock) {
-        for (name in listOf(planKey(HABITS), planKey(TASKS), planKey(TEST), SNOOZED)) {
-            val items = list(context, name)
-            if (items.removeAll { it.occurrence == occurrence }) write(context, name, items)
-        }
     }
 
     /**
@@ -252,36 +239,6 @@ object ReminderBook {
     fun dropLive(context: Context, occurrence: String) = synchronized(lock) {
         val live = list(context, LIVE)
         if (live.removeAll { it.occurrence == occurrence }) write(context, LIVE, live)
-    }
-
-    // --- The inbox -----------------------------------------------------------
-
-    fun addAnswer(context: Context, answer: JSONObject) = synchronized(lock) {
-        val prefs = prefs(context)
-        val inbox = try {
-            JSONArray(prefs.getString(INBOX, "[]"))
-        } catch (_: Exception) {
-            JSONArray()
-        }
-        inbox.put(answer)
-        prefs.edit().putString(INBOX, inbox.toString()).commit()
-    }
-
-    /** Every answer waiting, as JSON, and none left behind. */
-    fun takeAnswers(context: Context): String = synchronized(lock) {
-        val prefs = prefs(context)
-        val inbox = prefs.getString(INBOX, "[]") ?: "[]"
-        prefs.edit().remove(INBOX).commit()
-        inbox
-    }
-
-    /** Answers waiting, without taking them — for the call's figures. */
-    fun peekAnswers(context: Context): JSONArray = synchronized(lock) {
-        try {
-            JSONArray(prefs(context).getString(INBOX, "[]"))
-        } catch (_: Exception) {
-            JSONArray()
-        }
     }
 
     // --- The look, the timings, the marks -----------------------------------

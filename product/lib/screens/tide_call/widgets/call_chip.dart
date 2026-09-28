@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/tide_colors.dart';
+import '../../../theme/tide_motion.dart';
 import '../../../theme/tide_typography.dart';
 import '../../../widgets/press_scale.dart';
 
@@ -17,6 +18,7 @@ class CallChip extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.accent = false,
+    this.selected = false,
     this.enabled = true,
   });
 
@@ -26,33 +28,46 @@ class CallChip extends StatelessWidget {
 
   /// The one chip that means "yes", tinted in the accent.
   final bool accent;
+
+  /// Marks the answer this call is already set up to give — the "later" the
+  /// person has chosen. One at a time, so the bar can say what tapping the
+  /// orb away would do.
+  final bool selected;
+
   final bool enabled;
 
   @override
   Widget build(BuildContext context) {
+    final lit = selected || accent;
     final ink = !enabled
         ? TideColors.silt.withValues(alpha: 0.5)
-        : accent
+        : lit
         ? TideColors.lantern
         : TideColors.bone;
     return Semantics(
       button: true,
       enabled: enabled,
+      selected: selected,
       label: label,
       child: ExcludeSemantics(
         child: PressScale(
           enabled: enabled,
           onTap: onTap,
-          child: Container(
+          child: AnimatedContainer(
+            duration: TideMotion.tabSwitch,
+            curve: TideMotion.tabCurve,
             constraints: const BoxConstraints(minHeight: 44),
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
-              color: TideColors.shelf.withValues(alpha: 0.82),
+              color: TideColors.shelf.withValues(
+                alpha: selected ? 0.95 : 0.82,
+              ),
               borderRadius: BorderRadius.circular(22),
               border: Border.all(
-                color: accent && enabled
+                color: lit && enabled
                     ? TideColors.lantern.withValues(alpha: 0.45)
                     : TideColors.hairline,
+                width: selected ? 1.5 : 1,
               ),
             ),
             child: Row(

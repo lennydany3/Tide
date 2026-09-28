@@ -216,15 +216,11 @@ object ReminderNotifications {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open(context, item))
             .setAutoCancel(true)
-            .addAction(0, context.getString(R.string.reminder_on_it), answer(context, item, CallActions.ON_IT))
-        if (item.isHabit || item.stepsLeft == 0) {
-            builder.addAction(0, context.getString(R.string.reminder_done_already), answer(context, item, CallActions.DONE))
-        }
-        if (item.isHabit && item.freezes > 0) {
-            builder.addAction(0, context.getString(R.string.reminder_skip_today), answer(context, item, CallActions.SKIP))
-        } else if (!item.isHabit) {
-            builder.addAction(0, context.getString(R.string.reminder_tomorrow), answer(context, item, CallActions.TOMORROW))
-        }
+            .addAction(
+                0,
+                context.getString(R.string.reminder_later, item.snoozeMinutes),
+                answer(context, item, CallActions.LATER, item.snoozeMinutes),
+            )
         post(context, headsUpId(item), builder.build())
         if (!redraw) ReminderBook.addLive(context, item)
     }
@@ -300,22 +296,25 @@ object ReminderNotifications {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open(context, item))
             .setAutoCancel(true)
-        if (item.isHabit || item.stepsLeft == 0) {
-            builder.addAction(0, context.getString(R.string.reminder_done), answer(context, item, CallActions.DONE))
-        }
+        // No button: a call that rang out is over, and the day is still the
+        // person's. Tapping it opens the thing itself.
         post(context, gentleId(item), builder.build())
     }
 
+    /**
+     * The one answer a notification can give.
+     *
+     * Everything else a call used to offer — done, skipped, tomorrow — has gone
+     * with the reason for it: none of them were about being reminded, and a
+     * notification is the wrong place to change somebody's day.
+     */
     private fun answers(context: Context, builder: NotificationCompat.Builder, item: ReminderItem) {
-        if (item.isHabit || item.stepsLeft == 0) {
-            builder.addAction(0, context.getString(R.string.reminder_done), answer(context, item, CallActions.DONE))
-        }
-        builder.addAction(0, context.getString(R.string.reminder_snooze, item.snoozeMinutes), answer(context, item, CallActions.SNOOZE))
-        if (item.isHabit && item.freezes > 0) {
-            builder.addAction(0, context.getString(R.string.reminder_skip_today), answer(context, item, CallActions.SKIP))
-        } else if (!item.isHabit) {
-            builder.addAction(0, context.getString(R.string.reminder_tomorrow), answer(context, item, CallActions.TOMORROW))
-        }
+        if (item.snoozes >= ReminderBook.timing(context).maxSnoozes) return
+        builder.addAction(
+            0,
+            context.getString(R.string.reminder_later, item.snoozeMinutes),
+            answer(context, item, CallActions.LATER, item.snoozeMinutes),
+        )
     }
 
     // --- The call ------------------------------------------------------------
@@ -357,12 +356,12 @@ object ReminderNotifications {
             .setWhen(newest.dueAt)
             .setFullScreenIntent(full, true)
             .setContentIntent(full)
-        if (newest.isHabit || newest.stepsLeft == 0) {
-            builder.addAction(0, context.getString(R.string.reminder_done), answer(context, newest, CallActions.DONE))
-        }
-        val timing = ReminderBook.timing(context)
-        if (newest.snoozes < timing.maxSnoozes) {
-            builder.addAction(0, context.getString(R.string.reminder_snooze, newest.snoozeMinutes), answer(context, newest, CallActions.SNOOZE))
+        if (newest.snoozes < ReminderBook.timing(context).maxSnoozes) {
+            builder.addAction(
+                0,
+                context.getString(R.string.reminder_later, newest.snoozeMinutes),
+                answer(context, newest, CallActions.LATER, newest.snoozeMinutes),
+            )
         }
         return builder.build()
     }
@@ -403,11 +402,12 @@ object ReminderNotifications {
         )
     }
 
-    private fun answer(context: Context, item: ReminderItem, outcome: String): PendingIntent {
+    private fun answer(context: Context, item: ReminderItem, outcome: String, minutes: Int = 0): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java)
             .setAction(ReminderReceiver.ACTION_ANSWER)
             .putExtra(EXTRA_KEY, item.key)
             .putExtra(ReminderReceiver.EXTRA_OUTCOME, outcome)
+            .putExtra(ReminderReceiver.EXTRA_MINUTES, minutes)
             // The whole reminder rides along: a heads-up that has been taken
             // out of the plan is no longer anywhere else to look it up.
             .putExtra(ReminderReceiver.EXTRA_ITEM, item.json.toString())

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tide/config/app_constants.dart';
 import 'package:tide/services/auth/demo_auth_service.dart';
 import 'package:tide/services/device_flags.dart';
+import 'package:tide/services/reminders/call_controller.dart';
 import 'package:tide/services/reminders/reminder_plan.dart';
 import 'package:tide/services/reminders/reminder_platform.dart';
 import 'package:tide/services/reminders/reminder_settings.dart';
 import 'package:tide/services/reminders/reminder_store.dart';
-import 'package:tide/services/tasks/task.dart';
 import 'package:tide/services/tasks/task_local.dart';
 import 'package:tide/services/tide_store.dart';
 import 'package:tide/services/tasks/task_store.dart';
@@ -129,99 +130,97 @@ void main() {
     });
   });
 
-  group('answers from the lock screen', () {
-    ReminderAction action(
-      ReminderActionType type,
-      String subject, {
-      String? account = 'demo-jules',
-      String? step,
-      bool value = true,
-    }) => ReminderAction(
-      id: '${type.name}-$subject',
-      type: type,
-      subjectId: subject,
-      at: _dawn,
-      day: DateUtils.dateOnly(_dawn),
-      accountId: account,
-      stepId: step,
-      value: value,
-    );
-
-    test('done logs the habit without a celebration', () async {
+  group('a call answered inside the app', () {
+    test('a "later" is the one thing that reaches the phone', () async {
       build();
-      expect(tide.habitById('morning-water')!.isCompleteOn(_dawn), isFalse);
+      await _settle();
+      final call = habitPlan().firstWhere((r) => r.kind == ReminderKind.habitCall);
+      final controller = InAppCallController(
+        reminders: reminders,
+        calls: [call],
+        onClose: () {},
+      );
+      addTearDown(controller.dispose);
 
-      platform.queue(action(ReminderActionType.habitDone, 'morning-water'));
+      await controller.resolve(call, const CallLater(45));
       await _settle();
 
-      expect(tide.habitById('morning-water')!.isCompleteOn(_dawn), isTrue);
+      expect(platform.snoozes.single, (
+        item: call,
+        after: const Duration(minutes: 45),
+        snoozes: 1,
+      ));
+    });
+
+    test('hearing a call reaches nothing and changes nothing', () async {
+      build();
+      await _settle();
+      final task = tasks.add(title: 'Post the parcel');
+      final call = habitPlan().firstWhere((r) => r.kind == ReminderKind.habitCall);
+      final controller = InAppCallController(
+        reminders: reminders,
+        calls: [call],
+        onClose: () {},
+      );
+      addTearDown(controller.dispose);
+      expect(tide.habitById(call.subjectId)!.isCompleteOn(_dawn), isFalse);
+
+      await controller.resolve(call, const CallHeard());
+      await _settle();
+
+      expect(platform.snoozes, isEmpty);
+      expect(tide.habitById(call.subjectId)!.isCompleteOn(_dawn), isFalse);
+      expect(tasks.byId(task.id)!.isCompleted, isFalse);
       expect(tide.pendingHabitCue, isNull);
     });
 
-    test('skip spends a freeze on the day', () async {
+    test('the last later is dropped rather than sent', () async {
       build();
-      final before = tide.habitById('morning-water')!.freezesRemaining;
-
-      platform.queue(action(ReminderActionType.habitSkip, 'morning-water'));
       await _settle();
+      final call = habitPlan().firstWhere((r) => r.kind == ReminderKind.habitCall);
+      final phone = _SpyCallController(call, AppConstants.maxReminderSnoozes);
 
-      final habit = tide.habitById('morning-water')!;
-      expect(habit.isFrozenOn(_dawn), isTrue);
-      expect(habit.freezesRemaining, before - 1);
+      expect(phone.canLater(call), isFalse);
+      await phone.resolve(call, const CallLater(10));
+
+      expect(phone.sent, isEmpty);
     });
 
-    test('an answer from another account is not applied', () async {
+    test('one later short of the cap is still sent', () async {
       build();
-      platform.queue(
-        action(
-          ReminderActionType.habitDone,
-          'morning-water',
-          account: 'somebody-else',
-        ),
-      );
       await _settle();
+      final call = habitPlan().firstWhere((r) => r.kind == ReminderKind.habitCall);
+      final phone = _SpyCallController(
+        call,
+        AppConstants.maxReminderSnoozes - 1,
+      );
 
-      expect(tide.habitById('morning-water')!.isCompleteOn(_dawn), isFalse);
+      expect(phone.canLater(call), isTrue);
+      await phone.resolve(call, const CallLater(10));
+
+      expect(phone.sent, [const CallLater(10)]);
     });
 
-    test('a to-do is ticked step by step, then docked', () async {
+    test('the cap is the phone\'s count, not this controller\'s', () async {
       build();
-      final task = tasks.add(
-        title: 'Post the parcel',
-        subtasks: const [Subtask(id: 'label', title: 'Print the label')],
-      );
-
-      platform.queue(action(ReminderActionType.taskDone, task.id));
       await _settle();
-      expect(tasks.byId(task.id)!.isCompleted, isFalse, reason: 'a step open');
+      final plan = habitPlan().firstWhere((r) => r.kind == ReminderKind.habitCall);
+      // A call put off on the lock screen comes back carrying the count the
+      // book kept, with nothing in this controller to say so.
+      final call = PlannedReminder.fromJson({
+        ...plan.toJson(),
+        'details': {
+          ...plan.details,
+          'snoozes': AppConstants.maxReminderSnoozes,
+        },
+      })!;
+      final phone = _SpyCallController(call);
 
-      platform
-        ..queue(action(ReminderActionType.taskStep, task.id, step: 'label'))
-        ..queue(action(ReminderActionType.taskDone, task.id));
-      await _settle();
+      expect(phone.snoozesTaken(call), AppConstants.maxReminderSnoozes);
+      expect(phone.canLater(call), isFalse);
+      await phone.resolve(call, const CallLater(10));
 
-      expect(tasks.byId(task.id)!.subtasksLeft, 0);
-      expect(tasks.byId(task.id)!.isCompleted, isTrue);
-    });
-
-    test('tomorrow moves the to-do and its reminder', () async {
-      build();
-      final rang = _dawn.subtract(const Duration(minutes: 1));
-      final task = tasks.add(
-        title: 'Water the plants',
-        dueDate: _dawn,
-        reminders: [rang],
-      );
-
-      platform.queue(action(ReminderActionType.taskTomorrow, task.id));
-      await _settle();
-
-      final moved = tasks.byId(task.id)!;
-      expect(
-        moved.dueDate,
-        DateUtils.addDaysToDate(DateUtils.dateOnly(_dawn), 1),
-      );
-      expect(moved.reminders.single, rang.add(const Duration(days: 1)));
+      expect(phone.sent, isEmpty);
     });
   });
 
@@ -287,4 +286,25 @@ void main() {
       expect(tide.habitById(rung.first.subjectId), isNotNull);
     },
   );
+}
+
+/// A call controller that only records what it was asked to send, so the cap
+/// on "laters" can be tested where the phone counts them — the lock screen's
+/// [NativeCallController] reads the count from the book on every wake-up.
+class _SpyCallController extends CallController {
+  _SpyCallController(PlannedReminder call, [int? taken]) {
+    show([call], snoozes: {call.key: ?taken});
+  }
+
+  final List<CallOutcome> sent = [];
+
+  @override
+  Future<void> send(PlannedReminder call, CallOutcome outcome) async =>
+      sent.add(outcome);
+
+  @override
+  Future<void> openApp(PlannedReminder? call) async {}
+
+  @override
+  Future<void> finish() async {}
 }

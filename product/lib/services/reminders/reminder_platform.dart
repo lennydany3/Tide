@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../habits/habit_rows.dart';
+import '../../config/app_constants.dart';
 import '../models/reminder_options.dart';
 import 'reminder_plan.dart';
 
@@ -22,10 +22,11 @@ enum ReminderPermission {
     optional: false,
   ),
 
-  /// A call can take the screen over the lock screen, like an alarm clock.
+  /// A call can take the screen over the lock screen, while the phone is
+  /// asleep.
   fullScreen(
     'Full-screen alerts',
-    'So your habit can wake your screen like an alarm.',
+    'So a reminder can wake your screen while the phone is locked.',
     optional: false,
   ),
 
@@ -56,90 +57,6 @@ enum PermissionState {
   notApplicable;
 
   bool get ok => this != PermissionState.denied;
-}
-
-/// Something done to a reminder where no store was listening — on the lock
-/// screen, or from a notification's button with the app closed — waiting to
-/// be applied the next time the app runs.
-enum ReminderActionType {
-  /// Log the habit's full target for the day.
-  habitDone,
-
-  /// Spend a freeze on the day.
-  habitSkip,
-
-  taskDone,
-
-  /// Tick or untick one step. [ReminderAction.stepId] and
-  /// [ReminderAction.value] say which, and which way.
-  taskStep,
-
-  /// Move the to-do, and the reminder that rang, to tomorrow.
-  taskTomorrow,
-}
-
-@immutable
-class ReminderAction {
-  const ReminderAction({
-    required this.id,
-    required this.type,
-    required this.subjectId,
-    required this.at,
-    this.day,
-    this.stepId,
-    this.value = true,
-    this.accountId,
-  });
-
-  final String id;
-  final ReminderActionType type;
-  final String subjectId;
-
-  /// When it was done.
-  final DateTime at;
-
-  /// The habit's day the reminder was for — which is not always the day it
-  /// is applied: a call answered at 23:58 may reach the store after midnight.
-  final DateTime? day;
-
-  final String? stepId;
-  final bool value;
-
-  /// Whose reminder it was. Applied to nobody else.
-  final String? accountId;
-
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'type': type.name,
-    'subject': subjectId,
-    'at': at.millisecondsSinceEpoch,
-    'day': day == null ? null : HabitRows.dayText(day!),
-    'step': stepId,
-    'value': value,
-    'account': accountId,
-  };
-
-  static ReminderAction? fromJson(Object? json) {
-    if (json is! Map) return null;
-    final type = ReminderActionType.values.asNameMap()[json['type']];
-    final subject = json['subject'];
-    final id = json['id'];
-    final at = json['at'];
-    if (type == null || subject is! String || id is! String) return null;
-    return ReminderAction(
-      id: id,
-      type: type,
-      subjectId: subject,
-      at: at is int ? DateTime.fromMillisecondsSinceEpoch(at) : DateTime.now(),
-      day: HabitRows.parseDay(json['day']),
-      stepId: json['step'] is String ? json['step'] as String : null,
-      value: json['value'] != false,
-      accountId: json['account'] is String ? json['account'] as String : null,
-    );
-  }
-
-  @override
-  String toString() => 'ReminderAction(${type.name} $subjectId)';
 }
 
 /// Where a tap on a reminder should land.
@@ -195,15 +112,12 @@ abstract class ReminderPlatform {
   /// nothing when they are answered.
   Future<void> test(List<PlannedReminder> items);
 
-  /// Brings a call answered inside the app back in [after], counting
-  /// [snoozes] taken so far.
+  /// Brings a call put off inside the app back in [after], counting [snoozes]
+  /// taken so far. The one answer that leaves the phone, because a reminder is
+  /// the phone's from the moment it rings. A later past
+  /// [AppConstants.maxReminderSnoozes] is refused: the reminder is spent, and
+  /// saying so would be another interruption about there being none left.
   Future<void> snooze(PlannedReminder item, Duration after, int snoozes);
-
-  /// Actions waiting to be applied, removed as they are handed over.
-  Future<List<ReminderAction>> takeActions();
-
-  /// Fires when actions have been queued while the app is running.
-  Stream<void> get actionsQueued;
 
   /// Taps on reminders while the app is running.
   Stream<ReminderOpen> get opened;
@@ -218,7 +132,7 @@ abstract class ReminderPlatform {
 ///
 /// Records what it is handed so tests can read it, and can be told to act
 /// like a phone — which permissions it has, what a request answers — and to
-/// queue actions and taps as if they had come from a lock screen.
+/// record the "laters" and taps a lock screen would have sent.
 class NoReminderPlatform implements ReminderPlatform {
   NoReminderPlatform({
     this.permissionsAsked = const [],
@@ -254,17 +168,9 @@ class NoReminderPlatform implements ReminderPlatform {
       [];
   final List<ReminderPermission> requested = [];
 
-  final List<ReminderAction> _inbox = [];
-  final StreamController<void> _queued = StreamController<void>.broadcast();
   final StreamController<ReminderOpen> _opened =
       StreamController<ReminderOpen>.broadcast();
   ReminderOpen? launch;
-
-  /// Queues [action] as though it had come from the lock screen.
-  void queue(ReminderAction action) {
-    _inbox.add(action);
-    _queued.add(null);
-  }
 
   /// Taps a reminder.
   void tap(ReminderOpen open) => _opened.add(open);
@@ -301,16 +207,6 @@ class NoReminderPlatform implements ReminderPlatform {
     Duration after,
     int snoozes,
   ) async => this.snoozes.add((item: item, after: after, snoozes: snoozes));
-
-  @override
-  Future<List<ReminderAction>> takeActions() async {
-    final taken = List.of(_inbox);
-    _inbox.clear();
-    return taken;
-  }
-
-  @override
-  Stream<void> get actionsQueued => _queued.stream;
 
   @override
   Stream<ReminderOpen> get opened => _opened.stream;

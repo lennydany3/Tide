@@ -319,20 +319,20 @@ abstract final class TideMotion {
   /// quick chop reads as alarm, which is the one thing it must not.
   static const Duration callSwell = Duration(seconds: 7);
 
-  /// The water surging to the top when a habit is ridden in.
+  /// The water surging to the top once a habit's call has been heard.
   static const Duration callSurge = Duration(milliseconds: 500);
   static const Curve callSurgeCurve = Curves.easeOutCubic;
 
-  /// The water draining away on a snooze.
+  /// The water draining away on a "later".
   static const Duration callDrain = Duration(milliseconds: 400);
   static const Curve callDrainCurve = Curves.easeInCubic;
 
   /// How long an answered call stays up, saying what happened, before it
-  /// closes — long enough to read "Streak: 24 days", no longer.
+  /// closes — long enough to read "Back at 07:40", no longer.
   static const Duration callFarewell = Duration(milliseconds: 1500);
 
-  /// How far up the screen the ride must be carried to count, as a fraction
-  /// of the way from resting water to the top. Past this the water is
+  /// How far up the screen the water must be pulled to count as heard, as a
+  /// fraction of the way from resting to the top. Past this the water is
   /// visibly winning, and letting go finishes it.
   static const double rideThreshold = 0.6;
 
@@ -340,19 +340,9 @@ abstract final class TideMotion {
   /// tower. Real lights turn in about this long; any faster reads as a siren.
   static const Duration beamSweep = Duration(milliseconds: 6400);
 
-  /// The beam swinging onto the slip and holding there once it is docked.
+  /// The beam swinging onto the card and staying there once it is heard.
   static const Duration beamLock = Duration(milliseconds: 650);
   static const Curve beamLockCurve = Curves.easeOutCubic;
-
-  /// How far the dock slider's knob must travel to dock, as a fraction of
-  /// its track. Further than a card swipe on purpose: this one is answered
-  /// half-awake, and should not go off on a brush.
-  static const double dockThreshold = 0.86;
-
-  /// One run of the gleam through "Slide to dock", toward the dock. Slow
-  /// enough to read as light moving over the words, not as the words
-  /// flashing.
-  static const Duration dockShimmer = Duration(milliseconds: 2800);
 
   /// The Lighthouse's pieces coming up out of the night over [callEntry],
   /// each a beat behind the last — the clock, the slip, then the controls —

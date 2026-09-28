@@ -927,13 +927,13 @@ String _reminderNote(BuildContext context) {
   final defaults =
       ReminderScope.maybeOf(context)?.settings.taskDefaults ??
       ReminderOptions.taskDefaults;
-  final arrives = defaults.style == AlarmStyle.call
+  final arrives = defaults.style == ReminderStyle.call
       ? 'Rings as the Lighthouse'
       : 'Arrives as a notification';
   final lead = defaults.leadMinutes > 0
       ? ', with a heads-up ${defaults.leadMinutes} min before'
       : '';
-  return '$arrives$lead. Snooze ${defaults.snoozeMinutes} min. '
+  return '$arrives$lead. Put off for ${defaults.snoozeMinutes} min. '
       'Change it in Settings → Reminders.';
 }
 

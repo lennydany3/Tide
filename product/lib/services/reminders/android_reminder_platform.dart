@@ -61,18 +61,16 @@ class AndroidReminderPlatform implements ReminderPlatform {
     return platform;
   }
 
-  final StreamController<void> _queued = StreamController<void>.broadcast();
   final StreamController<ReminderOpen> _opened =
       StreamController<ReminderOpen>.broadcast();
 
+  /// The only thing the phone says back: a tap on a notification. Answers
+  /// given on the lock screen are native's alone — the ringing has to stop
+  /// with no Dart running, and being reminded changes nothing to send.
   Future<dynamic> _onCall(MethodCall call) async {
-    switch (call.method) {
-      case 'actionsQueued':
-        _queued.add(null);
-      case 'open':
-        final open = _parseOpen(call.arguments);
-        if (open != null) _opened.add(open);
-    }
+    if (call.method != 'open') return;
+    final open = _parseOpen(call.arguments);
+    if (open != null) _opened.add(open);
   }
 
   @override
@@ -135,18 +133,6 @@ class AndroidReminderPlatform implements ReminderPlatform {
       'snoozes': snoozes,
     });
   }
-
-  @override
-  Future<List<ReminderAction>> takeActions() async {
-    final raw = await _channel.invokeMethod<String>('takeActions');
-    if (raw == null) return const [];
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) return const [];
-    return [for (final item in decoded) ?ReminderAction.fromJson(item)];
-  }
-
-  @override
-  Stream<void> get actionsQueued => _queued.stream;
 
   @override
   Stream<ReminderOpen> get opened => _opened.stream;

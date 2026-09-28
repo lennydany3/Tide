@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show DateUtils;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,23 +9,33 @@ import '../../config/app_constants.dart';
 import '../habits/habit_rows.dart';
 import '../models/habit.dart';
 import 'reminder_plan.dart';
-import 'reminder_platform.dart';
 import 'reminder_store.dart';
 
-/// How a call was answered.
-enum CallOutcome {
-  /// Habit ridden in, to-do docked.
-  done,
-  snooze,
+/// What was done with a call.
+///
+/// A call asks one question — *are you awake, and when shall I come back?* —
+/// and there is no third thing. Nothing here can log a habit, dock a to-do,
+/// spend a freeze, move one to tomorrow or tick one of its steps: the call is
+/// a reminder, and being reminded is not a decision about the day.
+sealed class CallOutcome {
+  const CallOutcome();
+}
 
-  /// A freeze spent on the day. Habits only.
-  skip,
+/// Heard, and nothing more. The habit or to-do stays open and today is
+/// nobody's business but the person's.
+final class CallHeard extends CallOutcome {
+  const CallHeard();
+}
 
-  /// Put off to tomorrow. To-dos only.
-  tomorrow,
+/// Put off by [minutes]. The last "later" allowed is
+/// [AppConstants.maxReminderSnoozes]; after that the occurrence is simply
+/// over, and the phone does not say so twice.
+final class CallLater extends CallOutcome {
+  const CallLater(this.minutes);
 
-  /// Heard, and nothing more. The habit or to-do stays open.
-  dismiss,
+  final int minutes;
+
+  Duration get after => Duration(minutes: minutes);
 }
 
 /// The calls on screen and what answering them does.
@@ -37,9 +46,8 @@ enum CallOutcome {
 /// Settings — they answer through the stores ([InAppCallController]).
 ///
 /// **An answered call stays in [calls] until the screen retires it**, so its
-/// farewell — the surge, the streak, "Back in 10 min" — plays out in full.
-/// The answer itself is sent at once: the ringing must stop the moment the
-/// water reaches the top, not a second and a half later.
+/// farewell plays out in full. The answer itself is sent at once: the ringing
+/// must stop the moment it is given, not a second and a half later.
 abstract class CallController extends ChangeNotifier {
   final List<PlannedReminder> _calls = [];
   final Map<String, int> _snoozes = {};
@@ -58,46 +66,39 @@ abstract class CallController extends ChangeNotifier {
   /// Answered, and waiting on its farewell before it is retired.
   bool isAnswered(PlannedReminder call) => _answered.contains(call.key);
 
-  int snoozesTaken(PlannedReminder call) => _snoozes[call.key] ?? 0;
+  int snoozesTaken(PlannedReminder call) {
+    final own = _snoozes[call.key];
+    if (own != null) return own;
+    // A call put off on the lock screen is counted in the phone's book, and
+    // the call that comes back for it carries the figure. Read from there
+    // rather than assumed, so the cap is the same whichever screen is asking.
+    final carried = call.details['snoozes'];
+    return carried is num ? carried.toInt() : 0;
+  }
 
-  /// A snooze is still allowed: [AppConstants.maxReminderSnoozes] is the
-  /// last. A test can be snoozed, to see it happen; it just does not come
+  /// A "later" is still allowed: [AppConstants.maxReminderSnoozes] is the
+  /// last. A test can be put off, to see it happen; it just does not come
   /// back.
-  bool canSnooze(PlannedReminder call) =>
+  ///
+  /// **The count belongs to the phone.** A reminder put off from the lock
+  /// screen is counted in the book, and the next call for that occurrence
+  /// arrives carrying the figure — so it is read from the call itself when the
+  /// controller has none of its own. Without that, a call answered inside the
+  /// app always read zero, and the cap was only ever enforced on one screen.
+  bool canLater(PlannedReminder call) =>
       snoozesTaken(call) < AppConstants.maxReminderSnoozes;
 
   /// Answers [call]. Sends the answer at once; the call stays on screen
   /// until [retire].
+  ///
+  /// A "later" past the last allowed one is dropped rather than sent: the
+  /// reminder is spent, and saying so would be the fourth interruption in a
+  /// row about the fact there is nothing left to interrupt with.
   Future<void> resolve(PlannedReminder call, CallOutcome outcome) async {
+    if (outcome is CallLater && !canLater(call)) return;
     if (!_answered.add(call.key)) return;
     notifyListeners();
     await send(call, outcome);
-  }
-
-  /// Ticks or unticks one of a to-do's steps from the call.
-  Future<void> toggleStep(
-    PlannedReminder call,
-    String stepId,
-    bool done,
-  ) async {
-    final index = _calls.indexWhere((c) => c.key == call.key);
-    if (index < 0) return;
-    final steps = call.details['steps'];
-    if (steps is! List) return;
-    _calls[index] = call.copyWith(
-      details: {
-        ...call.details,
-        'steps': [
-          for (final step in steps)
-            if (step is Map && step['id'] == stepId)
-              {...step, 'done': done}
-            else
-              step,
-        ],
-      },
-    );
-    notifyListeners();
-    await sendStep(call, stepId, done);
   }
 
   /// Takes an answered call off the screen. The last one closes it.
@@ -141,14 +142,15 @@ abstract class CallController extends ChangeNotifier {
   Future<void> send(PlannedReminder call, CallOutcome outcome);
 
   @protected
-  Future<void> sendStep(PlannedReminder call, String stepId, bool done);
-
-  @protected
   Future<void> finish();
 }
 
 /// Calls answered inside the app: a notification tapped on iOS, or a
 /// preview from Settings → Reminders.
+///
+/// Only a "later" is sent on: it is the one answer that has to reach the
+/// phone, because the reminder is native's from that moment. Being heard
+/// changes nothing anywhere, so nothing is sent.
 class InAppCallController extends CallController {
   InAppCallController({
     required this.reminders,
@@ -171,52 +173,11 @@ class InAppCallController extends CallController {
 
   @override
   Future<void> send(PlannedReminder call, CallOutcome outcome) async {
-    if (!_live(call)) return;
-    final type = switch (outcome) {
-      CallOutcome.done =>
-        call.kind.isHabit
-            ? ReminderActionType.habitDone
-            : ReminderActionType.taskDone,
-      CallOutcome.skip => ReminderActionType.habitSkip,
-      CallOutcome.tomorrow => ReminderActionType.taskTomorrow,
-      CallOutcome.snooze || CallOutcome.dismiss => null,
-    };
-    if (type != null) {
-      reminders.apply(_action(call, type));
-    } else if (outcome == CallOutcome.snooze) {
-      await reminders.platform.snooze(
-        call,
-        Duration(minutes: call.options.snoozeMinutes),
-        snoozesTaken(call) + 1,
-      );
-    }
-  }
-
-  @override
-  Future<void> sendStep(PlannedReminder call, String stepId, bool done) async {
-    if (!_live(call)) return;
-    reminders.apply(
-      _action(call, ReminderActionType.taskStep, step: stepId, value: done),
-    );
-  }
-
-  ReminderAction _action(
-    PlannedReminder call,
-    ReminderActionType type, {
-    String? step,
-    bool value = true,
-  }) {
-    return ReminderAction(
-      id: '${call.key}:${type.name}:${DateTime.now().microsecondsSinceEpoch}',
-      type: type,
-      subjectId: call.subjectId,
-      at: DateTime.now(),
-      day:
-          HabitRows.parseDay(call.details['day']) ??
-          DateUtils.dateOnly(call.dueAt),
-      stepId: step,
-      value: value,
-      accountId: call.accountId,
+    if (outcome is! CallLater || !_live(call)) return;
+    await reminders.platform.snooze(
+      call,
+      outcome.after,
+      snoozesTaken(call) + 1,
     );
   }
 
@@ -229,8 +190,8 @@ class InAppCallController extends CallController {
 
 /// Calls on Android's lock screen, in the isolate `TideCallActivity` starts.
 ///
-/// Native code owns the ringing, the queue of answers and the snoozes; this
-/// asks it what is ringing, tells it what was answered, and hears when
+/// Native code owns the ringing and the "laters" given on the lock screen;
+/// this asks it what is ringing, tells it what was answered, and hears when
 /// another call joins the one on screen.
 class NativeCallController extends CallController {
   NativeCallController({DateTime Function()? clock})
@@ -264,28 +225,20 @@ class NativeCallController extends CallController {
         for (final item in (json['calls'] as List? ?? const []))
           ?PlannedReminder.fromJson(item),
       ];
-      final pending = [
-        for (final item in (json['pending'] as List? ?? const []))
-          ?ReminderAction.fromJson(item),
-      ];
       final snoozes = <String, int>{
         for (final entry in (json['snoozes'] as Map? ?? const {}).entries)
           if (entry.value is int) '${entry.key}': entry.value as int,
       };
-      show(await _refreshed(calls, pending), snoozes: snoozes);
+      show(await _refreshed(calls), snoozes: snoozes);
     } catch (error) {
       debugPrint('Calls not read: $error');
       show(const []);
     }
   }
 
-  /// [calls] with streaks worked out from the device's copy, as it would
-  /// stand once [pending] answers from earlier calls are applied. A call
-  /// planned three days ago would otherwise show three-day-old figures.
-  Future<List<PlannedReminder>> _refreshed(
-    List<PlannedReminder> calls,
-    List<ReminderAction> pending,
-  ) async {
+  /// [calls] with streaks worked out from the device's copy of the account. A
+  /// call planned three days ago would otherwise show three-day-old figures.
+  Future<List<PlannedReminder>> _refreshed(List<PlannedReminder> calls) async {
     final accounts = {
       for (final call in calls)
         if (call.kind.isHabit && !call.test) ?call.accountId,
@@ -300,7 +253,7 @@ class NativeCallController extends CallController {
       for (final habit in HabitRows.decodeCache(
         prefs.getString(HabitRows.cacheKey(account)),
       )) {
-        habits[habit.id] = _withPending(habit, pending);
+        habits[habit.id] = habit;
       }
     }
     return [
@@ -312,45 +265,16 @@ class NativeCallController extends CallController {
     ];
   }
 
-  static Habit _withPending(Habit habit, List<ReminderAction> pending) {
-    var result = habit;
-    for (final action in pending) {
-      if (action.subjectId != habit.id || action.day == null) continue;
-      final day = DateUtils.dateOnly(action.day!);
-      switch (action.type) {
-        case ReminderActionType.habitDone:
-          result = result.copyWith(logs: {...result.logs, day: result.target});
-        case ReminderActionType.habitSkip:
-          result = result.copyWith(frozenDays: {...result.frozenDays, day});
-        default:
-          break;
-      }
-    }
-    return result;
-  }
-
   @override
   Future<void> send(PlannedReminder call, CallOutcome outcome) async {
     try {
       await _channel.invokeMethod<void>('resolve', {
         'key': call.key,
-        'outcome': outcome.name,
+        'outcome': outcome is CallLater ? 'later' : 'dismiss',
+        if (outcome is CallLater) 'minutes': outcome.minutes,
       });
     } catch (error) {
       debugPrint('Call not answered: $error');
-    }
-  }
-
-  @override
-  Future<void> sendStep(PlannedReminder call, String stepId, bool done) async {
-    try {
-      await _channel.invokeMethod<void>('step', {
-        'key': call.key,
-        'step': stepId,
-        'value': done,
-      });
-    } catch (error) {
-      debugPrint('Step not sent: $error');
     }
   }
 

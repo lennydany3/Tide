@@ -37,7 +37,7 @@ abstract final class ReminderCopy {
   static String risingTideLine(String seed, String name, int lead) =>
       pick(seed, [
         'The tide rises in ${minutes(lead)} — $name is up next.',
-        '${minutes(lead)} till $name. Ride the wave.',
+        '${minutes(lead)} till $name — the water is coming in.',
         '$name in ${minutes(lead)}. The water is already moving.',
         'A little swell before $name — ${minutes(lead)} to go.',
       ]);
@@ -68,18 +68,29 @@ abstract final class ReminderCopy {
     'The water is up. Time for $name.',
   ]);
 
-  /// Said once the call is answered with done.
-  static String doneLine(int streak) =>
-      streak == 1 ? 'Streak: 1 day' : 'Streak: $streak days';
+  /// Said once a call has been heard and put off.
+  ///
+  /// A clock time rather than a duration, because this is read over a locked
+  /// screen by somebody only half awake: "10 min" is a rule to compute with,
+  /// "back at 07:40" is a time to plan around. Composed here, not in the
+  /// planner, because the answer is given on the call and the plan was built
+  /// before it.
+  static String backAt(DateTime at) =>
+      'Back at ${clock(TimeOfDay.fromDateTime(at))}';
 
-  static String snoozedLine(int minutes) =>
-      'Back in ${ReminderCopy.minutes(minutes)}';
+  /// Said when a call has been heard and nothing more was asked for. A
+  /// reminder is not an alarm clock and nothing is owed to it, so this is
+  /// short and says nothing about whether the day was kept.
+  static const String heardHabit = 'Heard — the tide is still up';
+  static const String heardTask = 'Heard — still on your list';
 
-  static String skippedLine(int freezesLeft) => freezesLeft == 1
-      ? 'Frozen for today · 1 freeze left'
-      : 'Frozen for today · $freezesLeft freezes left';
+  /// The last "later" has been spent. Said on the call and nowhere else: the
+  /// reminder stops for the day, and the day is nobody's debt.
+  static const String lastLaterToday = 'That was the last one today';
 
-  /// The notification left behind when a call rings out unanswered.
+  /// The notification left behind when a call rings out unanswered. It is the
+  /// one message that should survive, because it is the only one somebody who
+  /// was not looking at the phone will ever see.
   static String habitMissed(String name) =>
       'The tide went out on $name — still time today.';
 
@@ -104,14 +115,6 @@ abstract final class ReminderCopy {
     '$title, now.',
     'Bring $title in.',
   ]);
-
-  static String docked() => 'Docked';
-
-  static String tomorrowLine() => 'Moved to tomorrow';
-
-  static String stepsLeftLine(int left) => left == 1
-      ? '1 step left — tick it to dock'
-      : '$left steps left — tick them to dock';
 
   static String taskMissed(String title) =>
       'The beam passed $title — it is still on your list.';

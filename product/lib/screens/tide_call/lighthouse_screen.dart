@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../config/reminder_copy.dart';
 import '../../services/haptics.dart';
 import '../../services/reminders/call_controller.dart';
 import '../../services/reminders/reminder_plan.dart';
@@ -11,11 +12,10 @@ import '../../theme/tide_colors.dart';
 import '../../theme/tide_motion.dart';
 import '../../theme/tide_typography.dart';
 import '../../widgets/press_scale.dart';
-import '../../widgets/tide_tick.dart';
 import 'widgets/call_chip.dart';
 import 'widgets/call_clock.dart';
-import 'widgets/dock_slider.dart';
 import 'widgets/lighthouse_beam.dart';
+import 'widgets/reminder_bar.dart';
 import 'widgets/task_slip.dart';
 
 /// "Lighthouse": a to-do's reminder, full screen, at its time.
@@ -33,25 +33,31 @@ import 'widgets/task_slip.dart';
 /// card allows, and the beam finds the card wherever its title and steps
 /// have put it.
 ///
-/// It is answered with the to-do's own gesture — carried to the right — by
-/// sliding the lit knob along the channel to the dock. The beam swings onto
-/// the card and holds. A to-do with steps open will not dock, the rule the
-/// list keeps, so the steps are tickable right here on the card.
+/// **The beam comes to rest and stays there.** Hearing the call settles it on
+/// the card, which is the only acknowledgement it has: the to-do is still on
+/// the list, the steps are still open, and there is nothing to dock it into —
+/// that was a decision about the day dressed up as a reminder, and the
+/// reminder is not where that belongs. The card is read and nothing is
+/// written: a to-do with three steps open is three steps open at 7am.
 class LighthouseScreen extends StatefulWidget {
   const LighthouseScreen({
     super.key,
     required this.controller,
     required this.call,
+    this.clock,
   });
 
   final CallController controller;
   final PlannedReminder call;
 
+  /// For the "back at" line, and for tests.
+  final DateTime Function()? clock;
+
   @override
   State<LighthouseScreen> createState() => _LighthouseScreenState();
 }
 
-enum _Answer { none, docked, snoozed, tomorrow, dismissed }
+enum _Answer { none, heard, later }
 
 class _LighthouseScreenState extends State<LighthouseScreen>
     with TickerProviderStateMixin {
@@ -86,6 +92,7 @@ class _LighthouseScreenState extends State<LighthouseScreen>
     curve: TideMotion.lighthouseControlsIn,
   );
 
+  /// The beam settling onto the card and staying there.
   late final AnimationController _lock = AnimationController(
     vsync: this,
     duration: TideMotion.beamLock,
@@ -104,21 +111,34 @@ class _LighthouseScreenState extends State<LighthouseScreen>
     vsync: this,
     duration: TideMotion.celebrateIn,
   );
-  late final AnimationController _tick = AnimationController(
-    vsync: this,
-    duration: TideMotion.codeAccepted,
-  );
 
   _Answer _answer = _Answer.none;
+
+  /// What the bar is offering to put this call off by.
+  int _minutes = 0;
+
   String? _hint;
   Timer? _hintTimer;
 
   PlannedReminder get _call => widget.call;
 
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
   @override
   void initState() {
     super.initState();
+    _minutes = widget.call.options.snoozeMinutes;
     _entry.forward();
+  }
+
+  @override
+  void didUpdateWidget(LighthouseScreen old) {
+    super.didUpdateWidget(old);
+    // A different to-do on the same screen keeps the habit's own idea of how
+    // long a "later" is, rather than the one chosen for the last one.
+    if (old.call.key != widget.call.key && _answer == _Answer.none) {
+      _minutes = widget.call.options.snoozeMinutes;
+    }
   }
 
   @override
@@ -141,7 +161,7 @@ class _LighthouseScreenState extends State<LighthouseScreen>
   void dispose() {
     _hintTimer?.cancel();
     _ticker?.dispose();
-    for (final controller in [_entry, _lock, _dim, _leave, _farewell, _tick]) {
+    for (final controller in [_entry, _lock, _dim, _leave, _farewell]) {
       controller.dispose();
     }
     _time.dispose();
@@ -177,8 +197,6 @@ class _LighthouseScreenState extends State<LighthouseScreen>
 
   List<SlipStep> get _steps => SlipStep.parse(_call.details['steps']);
 
-  int get _stepsLeft => _steps.where((s) => !s.done).length;
-
   void _flash(String hint) {
     _hintTimer?.cancel();
     setState(() => _hint = hint);
@@ -189,42 +207,31 @@ class _LighthouseScreenState extends State<LighthouseScreen>
 
   // --- Answers ----------------------------------------------------------------
 
-  Future<void> _dock() async {
+  /// Heard: the beam finds the card and rests on it. Nothing about the to-do
+  /// changes — this is the whole answer, and it is deliberately enough.
+  Future<void> _heard() async {
     if (_answer != _Answer.none) return;
-    if (_stepsLeft > 0) {
-      _blocked();
-      return;
-    }
-    setState(() => _answer = _Answer.docked);
+    setState(() => _answer = _Answer.heard);
     unawaited(TideHaptics.heavyImpact());
-    unawaited(widget.controller.resolve(_call, CallOutcome.done));
+    unawaited(widget.controller.resolve(_call, const CallHeard()));
     await _lock.animateTo(
       1,
       duration: _motion(TideMotion.beamLock),
       curve: TideMotion.beamLockCurve,
     );
-    unawaited(_tick.animateTo(1, duration: _motion(TideMotion.codeAccepted)));
     await _finish();
   }
 
-  void _blocked() {
-    unawaited(TideHaptics.lightImpact());
-    _flash(
-      _stepsLeft == 1
-          ? 'One step left — tick it above to dock'
-          : '$_stepsLeft steps left — tick them above to dock',
-    );
-  }
-
-  Future<void> _snooze() async {
+  /// Put off for [minutes] — the bar's choice, from a chip or from the pad.
+  Future<void> _later() async {
     if (_answer != _Answer.none) return;
-    if (!widget.controller.canSnooze(_call)) {
-      _flash('No snoozes left for this one');
+    if (!widget.controller.canLater(_call)) {
+      _flash(ReminderCopy.lastLaterToday);
       return;
     }
-    setState(() => _answer = _Answer.snoozed);
+    setState(() => _answer = _Answer.later);
     unawaited(TideHaptics.mediumImpact());
-    unawaited(widget.controller.resolve(_call, CallOutcome.snooze));
+    unawaited(widget.controller.resolve(_call, CallLater(_minutes)));
     await Future.wait([
       _dim.animateTo(1, duration: _motion(TideMotion.callDrain)),
       _leave.animateTo(
@@ -236,37 +243,11 @@ class _LighthouseScreenState extends State<LighthouseScreen>
     await _finish();
   }
 
-  Future<void> _tomorrow() async {
-    if (_answer != _Answer.none) return;
-    setState(() => _answer = _Answer.tomorrow);
-    unawaited(TideHaptics.mediumImpact());
-    unawaited(widget.controller.resolve(_call, CallOutcome.tomorrow));
-    await _leave.animateTo(
-      1,
-      duration: _motion(TideMotion.callSurge),
-      curve: TideMotion.callDrainCurve,
-    );
-    await _finish();
-  }
-
-  Future<void> _dismiss() async {
-    if (_answer != _Answer.none) return;
-    setState(() => _answer = _Answer.dismissed);
-    unawaited(widget.controller.resolve(_call, CallOutcome.dismiss));
-    await _finish(hold: const Duration(milliseconds: 700));
-  }
-
   Future<void> _finish({Duration hold = TideMotion.callFarewell}) async {
     if (!mounted) return;
     unawaited(_farewell.forward());
     await Future<void>.delayed(hold);
     if (mounted) widget.controller.retire(_call);
-  }
-
-  void _toggle(SlipStep step) {
-    if (_answer != _Answer.none) return;
-    unawaited(TideHaptics.selectionClick());
-    unawaited(widget.controller.toggleStep(_call, step.id, !step.done));
   }
 
   // --- Build ------------------------------------------------------------------
@@ -385,7 +366,7 @@ class _LighthouseScreenState extends State<LighthouseScreen>
                       child: _arrive(
                         _controlsIn,
                         rise: 24,
-                        child: _controls(compact),
+                        child: _controls(),
                       ),
                     ),
                   ],
@@ -418,45 +399,13 @@ class _LighthouseScreenState extends State<LighthouseScreen>
     );
   }
 
-  Widget _controls(bool compact) {
-    final canSnooze = widget.controller.canSnooze(_call);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        DockSlider(
-          label: 'Dock ${_call.title}',
-          stepsLeft: _stepsLeft,
-          enabled: _answer == _Answer.none,
-          onDocked: _dock,
-          onBlocked: _blocked,
-        ),
-        SizedBox(height: compact ? 10 : 14),
-        Row(
-          children: [
-            Expanded(
-              child: _Choice(
-                label: canSnooze
-                    ? 'Snooze ${_call.options.snoozeMinutes} min'
-                    : 'No snoozes left',
-                icon: Icons.snooze_rounded,
-                enabled: canSnooze,
-                onTap: _snooze,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _Choice(
-                label: 'Tomorrow',
-                icon: Icons.wb_twilight_rounded,
-                onTap: _tomorrow,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: compact ? 0 : 4),
-        Center(child: CallDismiss(onTap: _dismiss)),
-        const SizedBox(height: 4),
-      ],
+  Widget _controls() {
+    return ReminderBar(
+      minutes: _minutes,
+      canLater: widget.controller.canLater(_call),
+      onMinutes: (minutes) => setState(() => _minutes = minutes),
+      onLater: _later,
+      onHeard: _heard,
     );
   }
 
@@ -479,11 +428,11 @@ class _LighthouseScreenState extends State<LighthouseScreen>
             builder: (context, child) {
               final rise = (1 - _slipIn.value) * 36;
               final leave = _leave.value;
-              final offset = switch (_answer) {
-                _Answer.snoozed => Offset(-box.maxWidth * leave, 0),
-                _Answer.tomorrow => Offset(0, box.maxHeight * 0.45 * leave),
-                _ => Offset.zero,
-              };
+              // Only a "later" takes the card away. Heard, the card stays
+              // where the beam has just found it.
+              final offset = _answer == _Answer.later
+                      ? Offset(-box.maxWidth * leave, 0)
+                      : Offset.zero;
               final (glint, sheen) = _light();
               return Transform.translate(
                 offset: Offset(offset.dx, offset.dy + rise),
@@ -495,7 +444,6 @@ class _LighthouseScreenState extends State<LighthouseScreen>
                     due: '${_call.details['due'] ?? ''}',
                     repeats: _call.details['repeats'] == true,
                     steps: _steps,
-                    onStep: _toggle,
                     glint: glint,
                     sheen: sheen,
                   ),
@@ -511,7 +459,7 @@ class _LighthouseScreenState extends State<LighthouseScreen>
   /// How squarely the beam is on the card right now, 0..1, and where across
   /// it the light falls. Rises as the beam reaches the card's first corner,
   /// is full across its middle and falls away as it leaves the last; once
-  /// docked it holds, full, across the middle.
+  /// heard it holds, full, across the middle.
   (double, double) _light() {
     final stage = _stage.value;
     final locked = _lock.value;
@@ -531,17 +479,15 @@ class _LighthouseScreenState extends State<LighthouseScreen>
 
   Widget _farewellCopy() {
     final text = switch (_answer) {
-      _Answer.docked => _call.copy['done'] ?? 'Docked',
-      _Answer.snoozed => _call.copy['snoozed'] ?? 'Snoozed',
-      _Answer.tomorrow => _call.copy['tomorrow'] ?? 'Moved to tomorrow',
-      _Answer.dismissed => 'Still on your list',
+      _Answer.later => ReminderCopy.backAt(
+        _now().add(Duration(minutes: _minutes)),
+      ),
+      _Answer.heard => ReminderCopy.heardTask,
       _Answer.none => '',
     };
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        if (_answer == _Answer.docked) TideTickMark(progress: _tick, size: 64),
-        const SizedBox(height: 14),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Text(
@@ -632,8 +578,8 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-/// A word for a moment under the card — why it will not dock, why it will
-/// not snooze — in a pill, so it reads over the night whatever is behind it.
+/// A word for a moment under the card — why it will not come back today — in
+/// a pill, so it reads over the night whatever is behind it.
 class _Hint extends StatelessWidget {
   const _Hint({super.key, required this.text});
 
@@ -653,64 +599,6 @@ class _Hint extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TideType.label.copyWith(fontSize: 13),
-      ),
-    );
-  }
-}
-
-/// One of the two other answers under the slider, side by side and the
-/// same size, so neither reads as the one the call would rather you chose.
-class _Choice extends StatelessWidget {
-  const _Choice({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.enabled = true,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final ink = enabled
-        ? TideColors.bone
-        : TideColors.silt.withValues(alpha: 0.5);
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: label,
-      child: ExcludeSemantics(
-        child: PressScale(
-          enabled: enabled,
-          onTap: onTap,
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: TideColors.shelf.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: TideColors.hairline),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 18, color: ink),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TideType.label.copyWith(color: ink),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

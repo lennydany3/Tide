@@ -43,13 +43,10 @@
 
     <!-- Reminders. The sentences a reminder says are written in Dart
          (lib/config/reminder_copy.dart) and arrive with each reminder; these
-         are only the names of buttons and channels. -->
-    <string name="reminder_on_it">I\'m on it</string>
-    <string name="reminder_done_already">Done already</string>
-    <string name="reminder_done">Done</string>
-    <string name="reminder_skip_today">Skip today</string>
-    <string name="reminder_snooze">Snooze %d min</string>
-    <string name="reminder_tomorrow">Tomorrow</string>
+         are only the names of buttons and channels. A notification offers
+         one answer — put it off — because a reminder is not the place to
+         change somebody's day. -->
+    <string name="reminder_later">Remind me in %d min</string>
     <plurals name="reminder_and_more">
         <item quantity="one">%1$s and 1 more</item>
         <item quantity="other">%1$s and %2$d more</item>

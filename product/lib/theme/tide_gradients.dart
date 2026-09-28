@@ -346,15 +346,6 @@ abstract final class TideGradients {
     );
   }
 
-  /// "Slide to dock", with a gleam running through it toward the dock:
-  /// muted ink either side of a band of full ink at phase [t] in 0..1. Used
-  /// through a `ShaderMask`, so the words keep their own shape.
-  static LinearGradient dockShimmer(double t) => LinearGradient(
-    colors: [TideColors.silt, TideColors.bone, TideColors.silt],
-    stops: const [0.38, 0.5, 0.62],
-    transform: _Slide(-0.75 + 1.5 * t),
-  );
-
   // --- Fire -------------------------------------------------------------
 
   /// The streak flame's fill: pale and hot on the side the app's one light
@@ -413,17 +404,4 @@ abstract final class TideGradients {
     ],
     stops: const [0, 0.06, 0.94, 1],
   );
-}
-
-/// Slides a gradient sideways by [fraction] of the box it fills — how
-/// [TideGradients.dockShimmer] moves its gleam without rewriting its stops,
-/// which have to stay in order and inside 0..1.
-class _Slide extends GradientTransform {
-  const _Slide(this.fraction);
-
-  final double fraction;
-
-  @override
-  Matrix4 transform(Rect bounds, {TextDirection? textDirection}) =>
-      Matrix4.translationValues(bounds.width * fraction, 0, 0);
 }

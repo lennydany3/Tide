@@ -25,8 +25,9 @@ import java.lang.ref.WeakReference
  * (`AndroidReminderPlatform` in lib/services/reminders/).
  *
  * Dart hands over plans, asks what the phone allows and asks for it, and
- * collects the answers given while it was not listening. The other way, this
- * says when an answer has just been queued, and when a reminder was tapped.
+ * puts off a call it answered itself. The other way, this says when a reminder
+ * was tapped. It never carries an answer back: a call is answered on the
+ * phone, and nothing given to it is the app's to apply.
  */
 class ReminderBridge(private val activity: Activity) {
     private var channel: MethodChannel? = null
@@ -41,9 +42,6 @@ class ReminderBridge(private val activity: Activity) {
         /** Weakly: the bridge holds the activity, which must be free to go. */
         private var active = WeakReference<ReminderBridge>(null)
         private val main = Handler(Looper.getMainLooper())
-
-        /** An answer was queued: the running app applies it now. */
-        fun notifyActions() = main.post { active.get()?.channel?.invokeMethod("actionsQueued", null) }
 
         fun openOf(intent: Intent?): Map<String, String>? {
             val target = intent?.getStringExtra(ReminderNotifications.EXTRA_TARGET) ?: return null
@@ -106,7 +104,7 @@ class ReminderBridge(private val activity: Activity) {
             "snooze" -> {
                 val item = ReminderItem.parse(call.argument<String>("item"))
                 if (item != null) {
-                    CallActions.snoozeFromApp(
+                    CallActions.laterFromApp(
                         context,
                         item,
                         (call.argument<Number>("after") ?: 600_000).toLong(),
@@ -117,7 +115,6 @@ class ReminderBridge(private val activity: Activity) {
             }
             "permissions" -> result.success(ReminderPermissions.states(context))
             "request" -> request(call.argument<String>("permission"), result)
-            "takeActions" -> result.success(ReminderBook.takeAnswers(context))
             "takeLaunch" -> {
                 result.success(launch)
                 launch = null

@@ -23,6 +23,7 @@ class ReminderReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_ANSWER = "com.example.tide.reminders.ANSWER"
         const val EXTRA_OUTCOME = "tide_reminder_outcome"
+        const val EXTRA_MINUTES = "tide_reminder_minutes"
         const val EXTRA_ITEM = "tide_reminder_item"
     }
 
@@ -102,6 +103,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val item = ReminderBook.find(context, key)
             ?: ReminderItem.parse(intent.getStringExtra(EXTRA_ITEM))
             ?: return
-        CallActions.resolve(context, item, outcome)
+        val minutes = intent.getIntExtra(EXTRA_MINUTES, 0)
+        CallActions.resolve(context, item, outcome, minutes)
     }
 }
