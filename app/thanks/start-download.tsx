@@ -8,12 +8,12 @@ type Props = {
   size: string | null;
 };
 
-/** Query flag the "Download Now" buttons add. See DownloadButton. */
+/** Query flag the "Download" buttons add. See DownloadButton. */
 export const DOWNLOAD_PARAM = "download";
 
 /**
- * Starts the APK download when the page was reached from a "Download Now"
- * button, and offers the link otherwise.
+ * Starts the APK download when the page was reached from a "Download" button,
+ * and offers the link otherwise.
  *
  * The flag is removed from the address before the download starts, so a
  * refresh, a back button or a shared link never downloads the file again.
@@ -44,34 +44,37 @@ export function StartDownload({ url, size }: Props) {
     return () => window.clearTimeout(timer);
   }, [url]);
 
-  return (
-    <div aria-live="polite" className="mt-8">
-      {started ? (
-        <p className="text-silt">
-          <span className="font-medium text-bone">Your download has started.</span>{" "}
-          Didn&rsquo;t start?{" "}
-          <a
-            href={url}
-            className="inline-flex items-center gap-1 font-medium text-lantern underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lantern"
-          >
-            Download the APK Directly
-            <ArrowUpRight aria-hidden="true" weight="bold" className="size-3.5" />
-          </a>
-        </p>
-      ) : (
+  if (started) {
+    return (
+      <p className="telemetry mt-8 border border-hairline bg-shelf px-4 py-4 text-silt">
+        <span className="text-bone">Download started.</span>{" "}
         <a
           href={url}
-          className="group inline-flex h-13 items-center gap-2.5 rounded-xl bg-lantern px-6 font-display font-medium whitespace-nowrap text-on-lantern shadow-[0_10px_30px_-12px_var(--lantern)] transition-[transform,box-shadow] duration-300 ease-tide hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-14px_var(--lantern)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lantern active:scale-[0.98]"
+          className="inline-flex items-center gap-1 text-lantern underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lantern"
         >
-          <DownloadSimple
-            aria-hidden="true"
-            weight="bold"
-            className="size-[1.1em] transition-transform duration-300 ease-tide group-hover:translate-y-0.5"
-          />
-          Download the APK
-          {size ? <span className="font-sans text-sm opacity-75 tabular-nums">{size}</span> : null}
+          Try again
+          <ArrowUpRight aria-hidden="true" weight="bold" className="size-3.5" />
         </a>
-      )}
+      </p>
+    );
+  }
+
+  return (
+    <div aria-live="polite" className="mt-8">
+      <a
+        href={url}
+        className="group inline-flex h-14 items-center gap-3 bg-lantern px-6 font-display text-[0.9rem] font-bold tracking-[0.08em] whitespace-nowrap text-on-lantern uppercase transition-colors duration-200 ease-instrument hover:bg-bone focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lantern active:translate-y-px"
+      >
+        <DownloadSimple
+          aria-hidden="true"
+          weight="bold"
+          className="size-4 transition-transform duration-200 ease-instrument group-hover:translate-y-0.5"
+        />
+        Download
+        {size ? (
+          <span className="telemetry opacity-70">{size}</span>
+        ) : null}
+      </a>
     </div>
   );
 }

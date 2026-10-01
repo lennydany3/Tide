@@ -1,73 +1,116 @@
 @import "tailwindcss";
 
 /*
- * Tide's colour roles, borrowed from the app's palettes
- * (product/lib/theme/tide_palette.dart). Dark is Midnight, the app's default.
- * Light is a web-only reading of Paper that keeps Midnight's blue as the
- * accent, deepened until it passes AA on a light ground.
+ * Tide's site is drawn as instrumentation.
+ *
+ * The product is a habit tracker you read your own week out of, so the site
+ * borrows the language of a readout rather than the language of a brochure:
+ * a rigid 1px compartment grid, monospaced telemetry type for anything
+ * measured, and one enormous uppercase headline per section against a great
+ * deal of quiet.
+ *
+ * Two rules make it read as one object, and both are absolute:
+ *
+ * 1. ONE SUBSTRATE. Dark only, always, on every page. The palette below is
+ *    Midnight — the app's default, read from product/lib/theme/tide_palette.dart.
+ *    The original token set carried a light "Paper" mode; it is gone. A page
+ *    that flips to newsprint halfway down reads as two websites stapled
+ *    together, and the fix is never to alternate.
+ *
+ * 2. ZERO RADIUS. Every corner on this site is 90 degrees. No exceptions, no
+ *    "just the pills". Roundness is what makes a grid feel soft, and a soft
+ *    grid is the thing this language exists to avoid — so there is deliberately
+ *    no radius scale in the @theme block below, and no rounded-* utility is
+ *    used anywhere under app/.
+ *
+ * There is exactly one accent, `lantern`, and it means the same thing here as
+ * it does in the app: this is the light. Everything structural is ink.
  */
 :root {
-  color-scheme: light;
-  --ground: #f2f5f7;
-  --shelf: #ffffff;
-  --shoal: #e4eaee;
-  --bone: #0a1116;
-  --silt: #52616c;
-  --lantern: #0a6fa3;
-  --on-lantern: #ffffff;
-  --hairline: rgb(10 17 22 / 0.1);
-  --glow: rgb(10 111 163 / 0.14);
-  --shadow: rgb(10 30 45 / 0.14);
-}
+  color-scheme: dark;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --ground: #05080b;
-    --shelf: #0c1217;
-    --shoal: #141c23;
-    --bone: #e8f1f6;
-    --silt: #8b99a4;
-    --lantern: #45d0ff;
-    --on-lantern: #02121a;
-    --hairline: rgb(232 241 246 / 0.08);
-    --glow: rgb(69 208 255 / 0.12);
-    --shadow: rgb(0 0 0 / 0.6);
-  }
+  /* --- Surfaces, darkest to lightest. --------------------------------- */
+  --ground: #05080b; /* the page */
+  --shelf: #0c1217; /* a panel lifted off the page */
+  --shoal: #141c23; /* a control, an input, one step further */
+  --trench: #020406; /* cut INTO a surface */
+
+  /* --- Ink. ------------------------------------------------------------ */
+  --bone: #e8f1f6; /* primary */
+  --silt: #7f8e99; /* muted, and every label in the telemetry register */
+
+  /* --- The one light. -------------------------------------------------- */
+  --lantern: #45d0ff;
+  --on-lantern: #02121a;
+
+  /* --- Two reserved marks, exactly as in the app. ---------------------- */
+  --coral: #e0675e; /* destruction, and only destruction */
+  --frost: #e0e7ee; /* a frozen day, and only a frozen day */
+
+  /* --- Lines. ---------------------------------------------------------- */
+  --hairline: rgb(232 241 246 / 0.1);
+  --rule: rgb(232 241 246 / 0.16);
+  --glow: rgb(69 208 255 / 0.14);
+
+  /* --- Type. ---------------------------------------------------------- *
+   * Prefixed `face-` rather than `font-`, because @theme below maps these
+   * onto Tailwind's own --font-* names. Reusing the name would make the
+   * mapping self-referential. */
+  --face-display: var(--font-space-grotesk), ui-sans-serif, system-ui,
+    sans-serif;
+  --face-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --face-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular",
+    monospace;
+
+  /* --- Motion. One curve for entrances, one for state. ----------------- *
+   * Prefixed `curve-` for the same reason as the faces: Tailwind's easing
+   * utilities live in `--ease-*`, and mapping `--ease-instrument` onto
+   * `var(--ease-instrument)` would point a custom property at itself. */
+  --curve-out-tide: cubic-bezier(0.16, 1, 0.3, 1);
+  --curve-instrument: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 @theme inline {
   --color-ground: var(--ground);
   --color-shelf: var(--shelf);
   --color-shoal: var(--shoal);
+  --color-trench: var(--trench);
   --color-bone: var(--bone);
   --color-silt: var(--silt);
   --color-lantern: var(--lantern);
   --color-on-lantern: var(--on-lantern);
+  --color-coral: var(--coral);
+  --color-frost: var(--frost);
   --color-hairline: var(--hairline);
-  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
-  --ease-tide: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-rule: var(--rule);
+
+  --font-display: var(--face-display);
+  --font-sans: var(--face-sans);
+  --font-mono: var(--face-mono);
+
+  --ease-tide: var(--curve-out-tide);
+  --ease-instrument: var(--curve-instrument);
 }
 
 html {
   -webkit-tap-highlight-color: transparent;
-}
-
-.surface {
-  transform: rotate(var(--tilt, 0deg));
+  scroll-padding-top: 5.5rem;
 }
 
 body {
   background: var(--ground);
   color: var(--bone);
+  font-family: var(--face-sans);
   touch-action: manipulation;
+  /* The substrate is flat and stays flat. Depth on this site comes from
+     hairlines and type scale, never from a bloom behind the content. */
 }
 
 h1,
 h2,
 h3 {
   text-wrap: balance;
+  font-family: var(--face-display);
 }
 
 p {
@@ -83,53 +126,273 @@ p {
   color: var(--on-lantern);
 }
 
-/* One radius system: controls 12px (the app's radius12), panels 24px,
-   device frames 44px. */
+:focus-visible {
+  outline: 2px solid var(--lantern);
+  outline-offset: 3px;
+}
 
-/* Entrance and scroll motion. Both exist to sequence the reading order,
-   and both are off for anyone who asks for less motion. */
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
+/* ==========================================================================
+   The two structural marks
+   ========================================================================== */
+
+/*
+ * The compartment grid.
+ *
+ * A `gap: 1px` grid over a parent that paints the rule colour, so the
+ * dividers are the parent's background showing through rather than borders
+ * on the children. That is the whole trick: mathematically even, razor thin,
+ * and no doubled or collapsed edge anywhere.
+ *
+ * Applied to a container, it makes every direct child a cell of the grid.
+ * Give the container `bg-hairline` and the gaps become the rules.
+ *
+ * This class is unlayered, so it outranks any Tailwind utility of equal
+ * specificity — `compartment border-0` keeps its border. Never nest one
+ * compartment inside another to get the dividers: put one `.compartment` on
+ * the grid and give the cells plain backgrounds.
+ */
+.compartment {
+  display: grid;
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+}
+
+/*
+ * The bloom, used once per page at most.
+ *
+ * A single radial wash behind the hero, at the lowest opacity that still
+ * reads as light in the substrate. There is no second one further down: a
+ * glow repeated down a page is decoration, and this site does not decorate.
+ */
+.instrument-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    52% 58% at 78% 24%,
+    var(--glow),
+    transparent 72%
+  );
+}
+
+/* ==========================================================================
+   Texture — fixed, pointer-events-none, never on a scrolling container
+   ========================================================================== */
+
+/*
+ * Grain and scanlines live on two fixed overlays and nowhere else.
+ *
+ * Applying either to a scrolling container repaints the full viewport every
+ * frame and destroys the frame budget on a mid-range phone, which is exactly
+ * the device the app this site sells runs on.
+ */
+.grain,
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* An SVG fractal noise tile, ~140px so the repeat is invisible at any zoom. */
+.grain {
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+/* The electron beam: a 3px period, one dark line per two lit ones. */
+.scanlines {
+  opacity: 0.5;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgb(2 4 6 / 0.34) 2px,
+    rgb(2 4 6 / 0.34) 3px
+  );
+}
+
+/* ==========================================================================
+   The telemetry register
+   ========================================================================== */
+
+/*
+ * Everything measured, numbered, or acting as a field label.
+ *
+ * Uppercase, tracked out, small, monospaced. This is the app's own numeric
+ * family and it is the reason the site and the product read as one object.
+ * Used for version strings, prices, screen IDs and section markers — never
+ * for a sentence.
+ */
+.telemetry {
+  font-family: var(--face-mono);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The structural marker above a section headline: an ASCII bracket, which is
+ * the one piece of decoration this site allows and uses sparingly. See the
+ * restraint note in .section-marker.
+ */
+.section-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--face-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--silt);
+}
+
+.section-marker::before {
+  content: "[";
+  color: var(--lantern);
+}
+
+.section-marker::after {
+  content: "]";
+  color: var(--lantern);
+}
+
+/*
+ * Macro typography.
+ *
+ * clamp() only, and only on the biggest words on the page. The lower bound is
+ * set so a headline never wraps past three lines at 360px, and the upper
+ * bound is set so it stops growing well before it collides with the column
+ * it sits in.
+ */
+.macro {
+  font-family: var(--face-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.86;
+  letter-spacing: -0.045em;
+  font-size: clamp(2.75rem, 11vw, 9rem);
+}
+
+.macro-md {
+  font-family: var(--face-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: -0.035em;
+  font-size: clamp(2rem, 6.2vw, 4.75rem);
+}
+
+/* A figure set as large as the headline beside it. Tabular so it does not
+   shift the column as it animates. */
+.figure {
+  font-family: var(--face-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+/* A live readout dot. The one looping animation permitted on an otherwise
+   still page, because "connected" is a fact that changes over time. */
+.beacon {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--lantern);
+  animation: beacon 2.4s var(--curve-instrument) infinite;
+}
+
+@keyframes beacon {
+  0%,
+  100% {
     opacity: 1;
-    transform: none;
+  }
+  50% {
+    opacity: 0.25;
   }
 }
 
-@keyframes surface {
-  from {
-    opacity: 0;
-    transform: translateY(40px) rotate(var(--tilt, 0deg));
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) rotate(var(--tilt, 0deg));
-  }
-}
+/* ==========================================================================
+   Motion
+   ========================================================================== */
 
+/*
+ * Entrances and scroll reveals stay in CSS on purpose.
+ *
+ * Every section below the hero is a server component. Handing each one a
+ * client boundary just to fade it in costs hydration on every one of them,
+ * and buys nothing: `animation-timeline: view()` runs on the compositor with
+ * no JavaScript at all. Motion (motion.dev) owns the work that genuinely
+ * needs it — the boot sequence, the hero's scroll coupling and the product
+ * demo — and those are three isolated leaves.
+ *
+ * Everything here is off for anyone who asks for less motion.
+ */
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
   }
 
-  .rise {
-    animation: rise 0.8s var(--ease-tide) both;
-    animation-delay: calc(var(--i, 0) * 90ms);
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 
-  .surface {
-    animation: surface 1.1s var(--ease-tide) both;
-    animation-delay: calc(var(--i, 0) * 140ms + 200ms);
+  /* Staggered by an inline --i, the same way every page in the site has
+     always sequenced its entrance. */
+  .rise {
+    animation: rise 0.7s var(--curve-out-tide) both;
+    animation-delay: calc(var(--i, 0) * 90ms);
   }
 
   @supports (animation-timeline: view()) {
     .reveal {
       animation: rise linear both;
       animation-timeline: view();
-      animation-range: entry 0% cover 22%;
+      animation-range: entry 0% cover 20%;
     }
   }
+
+  .beacon {
+    animation: beacon 2.4s var(--curve-instrument) infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .beacon {
+    animation: none;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+/* Horizontal scrollers (the palette strip) with the bar removed but the
+   scroll still possible. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Keyboard users get a real scrollbar back. */
+.no-scrollbar:focus-within {
+  scrollbar-width: thin;
 }
