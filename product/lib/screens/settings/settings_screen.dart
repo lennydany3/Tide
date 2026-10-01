@@ -174,6 +174,13 @@ class SettingsScreen extends StatelessWidget {
                         : updates.check(),
                   ),
                 SettingsRow(
+                  label: 'Terms and privacy',
+                  subtitle: 'What Tide keeps, and what it never asks for',
+                  icon: Icons.gavel_rounded,
+                  showChevron: true,
+                  onTap: () => context.push(Routes.legal),
+                ),
+                SettingsRow(
                   label: 'Help and feedback',
                   icon: Icons.help_outline_rounded,
                   showChevron: true,

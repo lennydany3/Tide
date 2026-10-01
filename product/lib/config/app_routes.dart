@@ -10,6 +10,7 @@ import '../screens/calendar/calendar_screen.dart';
 import '../screens/habit_detail/habit_detail_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/insights/insights_screen.dart';
+import '../screens/legal/legal_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/reminders/reminders_screen.dart';
 import '../screens/settings/settings_screen.dart';
@@ -45,6 +46,11 @@ abstract final class Routes {
   static const newHabit = '/habit/new';
   static const appearance = '/appearance';
   static const reminders = '/settings/reminders';
+
+  /// The Terms and the Privacy Policy, offline. One screen for both, reached
+  /// from Settings. [legal] takes an optional `?doc=privacy` to open the
+  /// policy rather than the terms.
+  static const legal = '/settings/legal';
 
   /// A call answered inside the app: a reminder tapped on iOS. Opened with a
   /// `CallRequest` as its extra.
@@ -284,6 +290,22 @@ abstract final class AppRoutes {
           parentNavigatorKey: _rootKey,
           pageBuilder: (context, state) =>
               _page(state, const RemindersScreen()),
+        ),
+
+        // The legal copy, read on the device rather than in a browser.
+        // `?doc=privacy` opens the policy directly, because a link out of
+        // another screen usually wants one document and not a choice between
+        // two. Anything else falls back to the terms.
+        GoRoute(
+          path: Routes.legal,
+          parentNavigatorKey: _rootKey,
+          pageBuilder: (context, state) {
+            final document = state.uri.queryParameters['doc'];
+            return _page(
+              state,
+              LegalScreen(initial: document == 'privacy' ? 1 : 0),
+            );
+          },
         ),
 
         // A call inside the app. It covers everything, tab bar included, and

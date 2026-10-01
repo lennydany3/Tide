@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/). See
 
 ## [Unreleased]
 
+### Added
+
+- Settings now has a Terms and privacy entry that opens the policy on your device, so you can read it without a connection.
+
 ## [1.0.3] - 2026-09-15
 
 ### Fixed
