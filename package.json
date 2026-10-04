@@ -10,6 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "legal:sync": "node scripts/legal.mjs",
+    "legal:check": "node scripts/legal.mjs --check",
     "release:patch": "node scripts/release.mjs bump patch",
     "release:minor": "node scripts/release.mjs bump minor",
     "release:major": "node scripts/release.mjs bump major",
@@ -17,6 +19,7 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "motion": "^13.4.6",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8"

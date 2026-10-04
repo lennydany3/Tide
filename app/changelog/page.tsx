@@ -18,13 +18,13 @@ function Inline({ parts }: { parts: InlinePart[] }) {
     switch (part.kind) {
       case "code":
         return (
-          <code key={i} className="rounded-md bg-shoal px-1.5 py-0.5 text-[0.9em]">
+          <code key={i} className="bg-shoal px-1.5 py-0.5 text-[0.9em]">
             {part.value}
           </code>
         );
       case "strong":
         return (
-          <strong key={i} className="font-semibold text-bone">
+          <strong key={i} className="font-bold text-bone">
             {part.value}
           </strong>
         );
@@ -51,70 +51,93 @@ export default async function ChangelogPage() {
   return (
     <>
       <SiteHeader />
-      <main id="main" className="mx-auto max-w-7xl px-4 pt-12 pb-24 sm:px-6 md:pt-16 lg:px-8 lg:pt-20 lg:pb-32">
-        <div className="grid gap-8 border-b border-hairline pb-12 md:grid-cols-12 md:items-end">
+      <main id="main" className="mx-auto max-w-7xl px-4 pb-24 sm:px-6 lg:px-8 lg:pb-32">
+        {/* --- Masthead --------------------------------------------------- */}
+        <section className="grid gap-8 border-b border-hairline py-16 md:grid-cols-12 md:items-end md:py-20">
           <div className="md:col-span-8">
+            <p className="section-marker rise" style={{ "--i": 0 } as React.CSSProperties}>
+              Log
+            </p>
             <h1
-              className="rise font-display text-5xl leading-[1.02] font-medium tracking-[-0.035em] sm:text-6xl"
-              style={{ "--i": 0 } as React.CSSProperties}
+              className="macro-md rise mt-6"
+              style={{ "--i": 1 } as React.CSSProperties}
             >
               Changelog
             </h1>
             <p
-              className="rise mt-5 max-w-lg text-lg leading-relaxed text-silt"
-              style={{ "--i": 1 } as React.CSSProperties}
+              className="rise mt-6 max-w-[46ch] leading-relaxed text-silt"
+              style={{ "--i": 2 } as React.CSSProperties}
             >
-              Every release of <span translate="no">Tide</span> for Android. The
-              latest is <span className="tabular-nums text-bone">{release.version}</span>.
+              Every release of <span translate="no">Tide</span> for Android, newest
+              first. The latest is{" "}
+              <span className="figure text-bone">{release.version}</span>.
             </p>
           </div>
           <div
             className="rise md:col-span-4 md:justify-self-end"
-            style={{ "--i": 2 } as React.CSSProperties}
+            style={{ "--i": 3 } as React.CSSProperties}
           >
             <DownloadButton />
           </div>
-        </div>
+        </section>
 
+        {/* --- Releases ---------------------------------------------------- */}
         {entries.length === 0 ? (
-          <p className="py-16 text-silt">
-            No releases yet. The first one will be listed here.
+          <p className="telemetry py-16 text-silt">
+            No releases yet — the first one will be listed here
           </p>
         ) : (
-          <ol className="divide-y divide-hairline">
+          <ol>
             {entries.map((entry) => (
               <li
                 key={entry.version}
                 id={`v${entry.version}`}
-                className="reveal grid gap-6 py-12 md:grid-cols-12 md:gap-10"
+                className="reveal grid gap-6 border-b border-hairline py-14 md:grid-cols-12 md:gap-10"
               >
+                {/* The version is a figure in a field, pinned while its
+                    entries scroll past — so the build you are reading stays
+                    on screen however long the list under it is. */}
                 <div className="md:col-span-4">
-                  <div className="md:sticky md:top-24">
-                    <h2 className="font-display text-3xl font-medium tracking-tight tabular-nums">
-                      {entry.version}
-                    </h2>
+                  <dl className="compartment grid-cols-2 md:sticky md:top-24 md:grid-cols-1">
+                    <div className="bg-ground px-4 py-4">
+                      <dt className="telemetry text-silt">Build</dt>
+                      <dd className="figure mt-2 text-2xl text-bone">
+                        <data value={entry.version}>{entry.version}</data>
+                      </dd>
+                    </div>
                     {entry.date ? (
-                      <p className="mt-2 text-sm text-silt">
-                        <time dateTime={entry.date}>{formatDate(entry.date)}</time>
-                      </p>
+                      <div className="bg-ground px-4 py-4">
+                        <dt className="telemetry text-silt">Released</dt>
+                        <dd className="telemetry mt-2 text-bone">
+                          <time dateTime={entry.date}>{formatDate(entry.date)}</time>
+                        </dd>
+                      </div>
                     ) : null}
-                  </div>
+                  </dl>
                 </div>
-                <div className="space-y-8 md:col-span-8">
+
+                <div className="md:col-span-8">
                   {entry.groups
                     .filter((group) => group.items.length > 0)
                     .map((group) => (
-                      <section key={group.title}>
-                        <h3 className="font-display text-sm font-medium text-lantern">
-                          {group.title}
-                        </h3>
-                        <ul className="mt-4 space-y-3">
+                      <section key={group.title} className="mb-8 last:mb-0">
+                        <h3 className="section-marker">{group.title}</h3>
+                        <ul className="mt-5 flex flex-col gap-3">
                           {group.items.map((item) => (
                             <li
                               key={item}
-                              className="relative pl-5 leading-relaxed break-words text-silt before:absolute before:top-[0.7em] before:left-0 before:h-px before:w-2.5 before:bg-silt/60"
+                              className="flex gap-3 text-[0.95rem] leading-relaxed break-words text-silt"
                             >
-                              <Inline parts={parseInline(item)} />
+                              {/* A tick in the telemetry register, not a
+                                  bullet — it is a machine-readable list of
+                                  changes, and the page reads as one. */}
+                              <span
+                                aria-hidden
+                                className="mt-2.5 h-px w-3 shrink-0 bg-rule"
+                              />
+                              <span>
+                                <Inline parts={parseInline(item)} />
+                              </span>
                             </li>
                           ))}
                         </ul>

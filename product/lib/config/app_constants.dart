@@ -7,13 +7,6 @@ abstract final class AppConstants {
   /// The line under the name on the splash and in Settings.
   static const String tagline = 'Habits that move like water';
 
-  /// Free plan ceiling. Hitting it is what triggers the contextual paywall —
-  /// the upgrade sheet is never a buried settings row.
-  static const int freeHabitLimit = 5;
-
-  /// Free-plan history window, quoted on the paywall.
-  static const int freeHistoryDays = 30;
-
   /// Digits in the code emailed to confirm a new account. Must match
   /// Supabase → Sign In / Providers → Email → Email OTP Length.
   static const int emailCodeLength = 6;
@@ -28,35 +21,10 @@ abstract final class AppConstants {
   /// here means Resend never offers something that is about to fail.
   static const int emailCodeResendSeconds = 60;
 
-  /// Default freeze allowance on a new habit.
+  /// Freeze allowance a new habit starts with, and the most any habit may be
+  /// given. The stepper runs the whole range for everybody.
   static const int defaultFreezeAllowance = 2;
   static const int maxFreezeAllowance = 7;
-
-  /// The most freezes a free habit may be given. Pro raises the ceiling to
-  /// [maxFreezeAllowance]; the editor's stepper stops here without it.
-  ///
-  /// Deliberately the same as [defaultFreezeAllowance], so nothing a free
-  /// account already has is taken away when the gate arrives — the free plan
-  /// keeps exactly what a new habit has always started with, and Pro is what
-  /// lets the number go up.
-  static const int freeFreezeAllowance = defaultFreezeAllowance;
-
-  // --- Tide Pro ----------------------------------------------------------
-
-  /// How long Razorpay's checkout is left open before it gives up, in
-  /// seconds. Long enough for a UPI approval in another app and back; short
-  /// enough that a sheet somebody walked away from does not hold its order
-  /// open all afternoon.
-  static const int checkoutTimeoutSeconds = 300;
-
-  /// Inside this many days of a period ending, Settings says so rather than
-  /// only showing the date. Matches `Entitlement.lapsesSoon`.
-  static const int renewalNoticeDays = 7;
-
-  /// How many receipts the billing screen asks for. Matches the default on
-  /// `billing_snapshot(p_limit)`, which clamps to 1..100 whatever is sent —
-  /// this is a receipt list, not an export.
-  static const int receiptLimit = 20;
 
   // --- App updates -------------------------------------------------------
 
@@ -73,17 +41,6 @@ abstract final class AppConstants {
 
   // --- To-do ------------------------------------------------------------
 
-  /// Reminders a task may carry on the free plan. Pro has no ceiling.
-  static const int freeTaskReminders = 1;
-
-  /// What a notification's snooze action puts the reminder off by. Pro.
-  static const int taskSnoozeMinutes = 10;
-
-  /// How many upcoming task reminders are handed to the OS at once. iOS
-  /// keeps 64 per app and drops the rest silently; the margin leaves room
-  /// for snoozes already counting down.
-  static const int maxScheduledTaskReminders = 60;
-
   /// How often an open app syncs tasks with nothing else prompting it.
   static const int taskSyncIntervalMinutes = 15;
 
@@ -92,6 +49,64 @@ abstract final class AppConstants {
 
   /// Longest months a custom repeat may run between occurrences.
   static const int maxCustomRepeatMonths = 24;
+
+  // --- Reminders ----------------------------------------------------------
+
+  /// How long before a habit or task a heads-up can arrive, in minutes. Zero
+  /// is "no heads-up": the reminder arrives on the minute and nothing before.
+  static const List<int> reminderLeadChoices = [0, 5, 10, 15];
+
+  /// The default a reminder is stored with, and what the options editor
+  /// offers.
+  static const List<int> reminderSnoozeChoices = [5, 10, 15];
+
+  /// The presets offered on a call itself, under "Remind me in".
+  ///
+  /// Wider than [reminderSnoozeChoices], because a call is answered
+  /// half-awake: five minutes is not long enough to have finished whatever
+  /// the reminder interrupted, and an hour is the answer on most days. The
+  /// stored default is not one of these — it is whatever the habit was given
+  /// — so the pill preselects it when it matches and nothing when it does
+  /// not, rather than quietly moving the habit's setting.
+  static const List<int> reminderLaterChoices = [5, 10, 15, 30, 60];
+
+  /// The longest "Later…" a call will take, in minutes. Past an afternoon a
+  /// reminder is not interrupting anybody, it is broken.
+  static const int reminderLaterMaxMinutes = 240;
+
+  /// How many "laters" one reminder may take. [maxReminderSnoozes] is the
+  /// last; after it the occurrence is simply over, and the phone says nothing
+  /// about it — no fourth nudge, no notice that there is nothing left to
+  /// nudge with. The name is left as it is because the counter has always
+  /// been called that: what is counted is a reminder being put off, whatever
+  /// the call now calls it.
+  static const int maxReminderSnoozes = 3;
+
+  /// How long a full-screen call rings before it gives up and leaves a
+  /// missed-reminder notification behind.
+  static const int reminderRingMinutes = 2;
+
+  /// Seconds for a ringing call's volume to swell from a murmur to full.
+  static const int reminderSwellSeconds = 10;
+
+  /// How many days ahead reminders are handed to the phone. The plan is
+  /// rebuilt on every change and every launch, so this only matters to
+  /// somebody who stops opening the app — a week of reminders keeps going
+  /// without them.
+  static const int reminderHorizonDays = 8;
+
+  /// The most reminders a single group (habits, or to-dos) keeps on the
+  /// phone at once, soonest first.
+  static const int maxPlannedReminders = 160;
+
+  /// A reminder that reaches the phone this late — it was off, or asleep in
+  /// a way no alarm could wake — is delivered quietly as missed, rather than
+  /// ringing for something that has already gone by.
+  static const int reminderStaleMinutes = 10;
+
+  /// The test button in Settings → Reminders: the heads-up after this many
+  /// seconds, and the call the same again after it.
+  static const int reminderTestDelaySeconds = 10;
 
   static const List<String> weekdayInitials = [
     'M',
